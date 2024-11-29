@@ -16,7 +16,7 @@ bool GBSetVideoInfo(int encode_type,int width, int height, int frame_rate,
                                              unsigned char* pExtraData, int extra_len,int idx);
 int GBPushRealTimeVideoFrame(int i_frame_type,int i_encode_type, unsigned char* pRawData,
                                                        int i_length, int i_width, int i_height,
-                                                       int i_frame_rate,int idx);
+                                                       int i_frame_rate,int idx,unsigned long long pts);
 int GBPushRealTimeAudioFrame(int i_frame_type,int i_encode_type, unsigned char* byte_data,
                                                        int i_length, int i_samples_per_sec,
                                                        int i_bits_per_sample, int i_channel_num,

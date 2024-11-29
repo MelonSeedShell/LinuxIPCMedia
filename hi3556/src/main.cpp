@@ -13,8 +13,13 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <fstream>
+#include <sstream>
 #include <map>
 #include <vector>
+#include <sys/time.h>
+
+#include "Gb28181Api.h"
+#include "Gb28181Def.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -32,6 +37,9 @@ static void testLog(const char *func, int line, char *fmt, ...)
 
 #define DEFAULT_MEDIA_SVR_CFG  "/app/DefaultMediaSvr.cfg"
 #define MEDIA_SVR_CFG          "/app/sd/MediaSvr.cfg"
+
+#define DEFAULT_DSJET_GB_SVR_CFG  "/app/dsjet_gb.cfg"
+#define DSJET_GB_SVR_CFG          "/app/sd/dsjet_gb.cfg"
 
 // #define TEST_VIDEO
 // #define TEST_AUDIO
@@ -78,6 +86,26 @@ std::vector<std::vector<std::string>> paramVector = {
 };
 std::map<std::string, std::string> ParamMap;
 
+
+std::map<std::string, std::string> GBParamMap = {
+    {"PlatformIP", "211.139.163.62"},
+    {"PlatformPort", "6608"},
+    {"PlatformCode", "44010200495000000001"},
+    {"DeviceDomainName", "4401020049"},
+    {"DeviceCode", "44010200495000000036"},
+    {"AlarmCode", "44010200495000000036"},
+    {"UserName", "admin"},
+    {"Password", "ok123456"},
+    {"ModelName", "F1H"},
+};
+
+typedef struct {
+    bool realTimeAudio = false;
+    bool talkAudio = false;
+    bool listenAudio = false;
+} AudioWorkStates;
+
+static AudioWorkStates g_audio_work_states;
 
 static std::string getJsonStringVal(const char* msg, const char* key)
 {
@@ -158,6 +186,7 @@ static int GetDevInfo(const char *pJSON)
     // LOG("vgbname:%s\n", vgbname.c_str());
     // LOG("lng:%s\n", lng.c_str());
     // LOG("lat:%s\n", lat.c_str());
+    // LOG("gpsUploadTime:%d\n", gpsUploadTime);
     snprintf(g_DevInfo.szUser, sizeof(g_DevInfo.szUser), "%s", user.c_str());
     snprintf(g_DevInfo.szPwd, sizeof(g_DevInfo.szPwd), "%s", pwd.c_str());
     snprintf(g_DevInfo.szIpAddr, sizeof(g_DevInfo.szIpAddr), "%s", ip.c_str());
@@ -194,15 +223,12 @@ static void *UploadGpsThread(void *argv)
     CR_GPSInfo stCsGpsInfo;
     memset(&stCsGpsInfo, 0, sizeof(stCsGpsInfo));
     while (bGpsUpload) {
-        // SVR_RequestGetDevInfo();
+        SVR_RequestGetDevInfo();
         sleep(2);
-        GetTimeStamp(&timeStamp);
 
-        stCsGpsInfo.fLatitude = g_DevInfo.lat;
-        stCsGpsInfo.fLongitude = g_DevInfo.lng;
-        stCsGpsInfo.uiTime = (unsigned int)timeStamp;
-
-        // ret = CR_SendGPSData(g_HandleGps, &stCsGpsInfo, sizeof(stCsGpsInfo));
+        std::string lat = std::to_string(g_DevInfo.lat);
+        std::string lng = std::to_string(g_DevInfo.lng);
+        ret = GBUpdateGPS(lat.c_str(), lng.c_str(), 0);
         if (ret < 0) {
             break;
         }
@@ -691,34 +717,73 @@ static int getValueFromParam(std::string &value, const std::string &key, const s
 
 static int pfnGetAudioCB(char *data, int len, unsigned long long pts, int encode, int sampleRate)
 {
-    // LOG("len:%d, pts:%llu\n");
+    // LOG("len:%d, pts:%llu\n", len, pts);
     g_AudioMediaInfo.nAudioSamplesPerSec = sampleRate;
-    // int ret = CR_SendStreamData((CR_HSTREAM*)g_HandleAudio, (unsigned char*)data, len, FRAMETYPE_AUDIO, 0, &g_AudioMediaInfo, pts);
+    unsigned char *buf = (unsigned char *)data;
 
+    GBPushRealTimeAudioFrame(FRAME_TYPE_A, ENCODE_TYPE_PCM, buf, len,
+                            sampleRate, 16, 1,0);
     return 0;
+}
+
+
+static unsigned int GetAVCNalUnit(unsigned char *pNaluType, unsigned char *pBuffer, unsigned int size)
+{
+    unsigned int code = 0;
+    unsigned int tmp = 0;
+    unsigned int pos = 0;
+    unsigned char u8NalHead = 0;
+
+    for (code = 0xffffffff, pos = 0; pos < 4; pos++) {
+        tmp = pBuffer[pos];
+        code = (code << 8) | tmp;
+    }
+
+    if (code != 0x00000001) {
+        return 0;
+    }
+    u8NalHead = pBuffer[pos++];
+
+    *pNaluType = u8NalHead & 0x1f;
+
+    for (code = 0xffffffff; pos < size; pos++) {
+        tmp = pBuffer[pos];
+
+        if ((code = (code << 8) | tmp) == 0x00000001) {
+            break;                //next start code is found
+        }
+    }
+
+    if (pos == size ) {            // next start code is not found, this must be the last nalu
+        return size;
+    } else {
+        return pos - 4 + 1;
+    }
 }
 
 static int pfnGetVideoCB(char *data, int len, unsigned long long pts, int frameType, int encode)
 {
-    // LOG("len:%d, pts:%llu\n");
-    bool isKeyFrame ;
+    // LOG("len:%d, pts:%llu\n", len, pts);
+    int ret = 0;
+    int videoFrameRate = 25;
+    unsigned char* buf = (unsigned char*)data;
+    int gbEncode = -1;
     if (encode == VIDEO_ENCODE_H264) {
-        if (frameType == H264E_ISLICE || frameType == H264E_BSLICE || frameType == H264E_IDRSLICE) {
-            isKeyFrame = 1;
-        } else {
-            isKeyFrame = 0;
-        }
+        gbEncode = ENCODE_TYPE_H264;
     } else if (encode == VIDEO_ENCODE_H265) {
-        if (frameType == H265E_ISLICE || frameType == H265E_BSLICE) {
-            isKeyFrame = 1;
-        } else {
-            isKeyFrame = 0;
-        }
+        gbEncode = ENCODE_TYPE_H265;
     }
 
-    // int ret = CR_SendStreamData((CR_HSTREAM*)g_HandleVideo, (unsigned char*)data, len, FRAMETYPE_VIDEO, isKeyFrame,
-    //          &g_VideoMediaInfo, pts);
-    int ret = 0;
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    unsigned long long frame_pts = (tv.tv_sec * 1000 + tv.tv_usec/1000) * 90;
+
+    if (H264E_IDRSLICE == frameType || H265E_IDRSLICE == frameType) {
+        ret = GBPushRealTimeVideoFrame(FRAME_TYPE_I, gbEncode, buf, len, mUploadWidth, mUploadHeight, videoFrameRate, 0, frame_pts);
+    } else {
+        ret = GBPushRealTimeVideoFrame(FRAME_TYPE_P, gbEncode, buf, len, mUploadWidth, mUploadHeight, videoFrameRate, 0, frame_pts);
+    }
+
     if (ret < 0) {
 #ifdef TEST_TALK
     if (g_talkFp != NULL) {
@@ -781,8 +846,280 @@ static int pfnEventCB(EVENT *event)
     return 0;
 }
 
+/*
+static void sendVideo()
+{
+    char[] buf;
+    int videoFrameRate = 25;
+    //sps
+    if((buf[3] == 0x01) && (buf[4] == 0x67))
+    {
+        GBSetVideoInfo(ENCODE_TYPE_H264, mUploadWidth, mUploadHeight, videoFrameRate, buf, buf.length,0);
+    }
+    //pps
+    else if((buf[3] == 0x01) && (buf[4] == 0x68))
+    {
+        GBSetVideoInfo(ENCODE_TYPE_H264, mUploadWidth, mUploadHeight, videoFrameRate, buf, buf.length,0);
+    }
+    //i frame
+    else if (buf[4] == 0x65)
+    {
+        GBPushRealTimeVideoFrame(FRAME_TYPE_I, ENCODE_TYPE_H264, buf, buf.length, mUploadWidth, mUploadHeight, videoFrameRate,0);
+    }
+    //p frame
+    else
+    {
+        GBPushRealTimeVideoFrame(FRAME_TYPE_P, ENCODE_TYPE_H264, buf, buf.length, mUploadWidth, mUploadHeight, videoFrameRate,0);
+    }
+}
 
-extern int dsjet_gb_start(void);
+    GBPushRealTimeAudioFrame(FRAME_TYPE_A, ENCODE_TYPE_PCM, mRecordBuffer, readBytes,
+                            8000, 16, 1,0);
+*/
+int Callback(int iType, const char* szMessage, int iMsgLen, void* pUserParam, int idx)
+{
+    printf("\n %s,iType: %d ,szMessage: %s ,iMsgLen: %d idx:%d \n",__FUNCTION__,iType,szMessage,iMsgLen,idx);
+    switch(iType)
+    {
+        case GBT_MSG_OFFLINE:
+            printf("GBT_MSG_OFFLINE \n");
+            {
+                SVR_Login(false);
+            }
+            break;
+        case GBT_MSG_ONLINE:
+            printf("GBT_MSG_ONLINE \n");
+            {
+                SVR_Login(true);
+            }
+            break;
+        case GBT_MSG_START_REALTIME:
+            printf("GBT_MSG_START_REALTIME \n");
+            {
+                SVR_StartGetVideo();
+
+                SVR_StartGetAudio();
+
+                g_audio_work_states.realTimeAudio = true;
+            }
+            break;
+        case GBT_MSG_STOP_REALTIME:
+            printf("GBT_MSG_STOP_REALTIME \n");
+            {
+                SVR_StopGetVideo();
+
+                g_audio_work_states.realTimeAudio = false;
+                if (!(g_audio_work_states.realTimeAudio || g_audio_work_states.talkAudio || g_audio_work_states.listenAudio)) {
+                    SVR_StopGetAudio();
+                }
+                
+            }
+            break;
+        case GBT_MSG_START_TALK:
+            LOG("GBT_MSG_START_TALK \n");
+#ifdef TEST_TALK
+            if (g_talkFp == NULL) {
+                g_talkFp = fopen("/app/sd/audio/recv.pcm", "wb");
+                if (g_talkFp == NULL) {
+                    LOG("open file failed \n");
+                    return 0;
+                }
+            }
+#endif
+
+            {
+                SVR_StartGetAudio();
+
+                g_audio_work_states.talkAudio = true;
+            }
+            break;
+        case GBT_MSG_STOP_TALK:
+            LOG("GBT_MSG_STOP_TALK \n");
+#ifdef TEST_TALK
+            if (g_talkFp != NULL) {
+                fclose(g_talkFp);
+            }
+#endif
+            {
+                g_audio_work_states.talkAudio = false;
+                if (!(g_audio_work_states.realTimeAudio || g_audio_work_states.talkAudio || g_audio_work_states.listenAudio)) {
+                    SVR_StopGetAudio();
+                }
+            }
+            break;
+    }
+    return 0;
+}
+int TalkDataCallback(const unsigned char* szData, int iLen, int iSampleRate, int iSampleSize,
+    int iChannels, long lTimeStamp, void* pUserParam,int idx)
+{
+    // LOG("\n %s,iLen: %d ,iSampleRate: %d ,iChannels: %d idx:%d \n",__FUNCTION__,iLen,iSampleRate,iChannels,idx);
+    int ret = 0;
+#ifdef TEST_TALK
+    if (g_talkFp != NULL) {
+        // LOG("nFrameLen:%d \n", nFrameLen);
+        ret = fwrite((char*)szData, 1, iLen, g_talkFp);
+        if (ret <= 0) {
+            LOG("fwrite data failed \n");
+        }
+    }
+#endif
+    // return 0;
+    ret = SVR_SndTaklAudio((char*)szData, iLen, lTimeStamp, AUDIO_ENCODE_PCM, 8000);
+    if (ret < 0) {
+        LOG("SVR_SndTaklAudio failed \n");
+        if (ret == -2) {// need start recv audio
+            SVR_StartRecvAudio();
+        }
+    }
+
+    return 0;
+}
+
+static int dsjet_gb_StartUploadGps(void)
+{
+    if (bGpsUpload) {
+        return 0;
+    }
+    bGpsUpload = true;
+    pthread_t pGpsUploadThread;
+    return pthread_create(&pGpsUploadThread, nullptr, UploadGpsThread, nullptr);
+}
+
+int dsjet_gb_load_param(const std::string& filePath, std::map<std::string, std::string> &map)
+{
+    int ret = 0;
+    std::ifstream file(filePath);
+    if (file.is_open()) {
+        std::string line;
+        while (std::getline(file, line)) {
+            // LOG("cur line is : %s \n", line.c_str());
+            if (line.substr(0, 1) == "#" || line.substr(0, 1) == ";") {
+                continue;//get line is annotation
+            }
+
+            std::string key;
+            std::string value;
+            size_t eqPos = line.find('=');
+            if (std::string::npos == eqPos) {
+                LOG("cur line not support, line:%s \n", line.c_str());
+                ret = -1;
+                break;
+            }
+
+            key = line.substr(0, eqPos);
+            value = line.substr(eqPos + 1, line.length() - eqPos - 2);
+            LOG("key:%s, value:%s \n", key.c_str(), value.c_str());
+
+            auto it = map.find(key);
+            if (it == map.end()) {
+                LOG("the is not support , key:%s\n", key.c_str());
+            } else {
+                it->second = value;
+            }
+        }
+    } else {
+        LOG("no such file :%s , need load device default cfg\n", filePath.c_str());
+        ret = -1;
+    }
+
+    file.close();
+
+    return ret;
+}
+
+int dsjet_gb_start(void)
+{
+    int ret = 0;
+    ret = dsjet_gb_load_param(DSJET_GB_SVR_CFG, GBParamMap);
+    if (ret < 0) {
+        LOG("load param failed by file, create it \n");
+        std::ofstream file(DSJET_GB_SVR_CFG, std::ios::out | std::ios::trunc);
+        if (file.is_open()) {
+            for (const auto& item : GBParamMap) {
+                file << item.first;
+                file << "=";
+                file << item.second;
+                file << ";\n";
+            }
+        }
+
+        file.close();
+    }
+
+    std::string PlatformIP, PlatformPort, PlatformCode, DeviceDomainName, DeviceCode, AlarmCode, UserName, Password, ModelName;
+
+    ret = getValueFromParam(PlatformIP, "PlatformIP", GBParamMap);
+    ret |= getValueFromParam(PlatformPort, "PlatformPort", GBParamMap);
+    ret |= getValueFromParam(PlatformCode, "PlatformCode", GBParamMap);
+    ret |= getValueFromParam(DeviceDomainName, "DeviceDomainName", GBParamMap);
+    ret |= getValueFromParam(DeviceCode, "DeviceCode", GBParamMap);
+    ret |= getValueFromParam(AlarmCode, "AlarmCode", GBParamMap);
+    ret |= getValueFromParam(UserName, "UserName", GBParamMap);
+    ret |= getValueFromParam(Password, "Password", GBParamMap);
+    ret |= getValueFromParam(ModelName, "ModelName", GBParamMap);
+
+    if (ret < 0) {
+        LOG("init dsjet gb config failed \n");
+        return ret;
+    }
+    std::stringstream ssParam;
+    ssParam << "{";
+    ssParam << "\"Platform\":";
+    ssParam << "{";
+    ssParam << "\"nEnable\":\"1 \",";
+    ssParam << "\"nConnectType\":\"1\",";
+    ssParam << "\"strPlatformIP\":\"" + PlatformIP +"\",";
+    ssParam << "\"nPlatformPort\":\"" + PlatformPort +"\",";
+    ssParam << "\"strPlatformCode\":\"" + PlatformCode +"\",";
+    ssParam << "\"strDevDomainID\":\"" + DeviceDomainName +"\",";
+    ssParam << "\"strDevCode\":\"" + DeviceCode +"\",";
+    ssParam << "\"strAlarmCode\":\"" + AlarmCode +"\",";
+    ssParam << "\"strUserName\":\"" + UserName +"\",";
+    ssParam << "\"strUserID\":\"" + DeviceCode +"\",";
+    ssParam << "\"strPassword\":\"" + Password +"\",";
+    ssParam << "\"strModel\":\"" + ModelName +"\",";
+    ssParam << "\"nDevListenPort\":\"" + std::to_string(mDevListenPort) +"\",";
+    ssParam << "\"nExpiresTime\":\"3600\",";
+    ssParam << "\"nKeepAliveTime\":\"10\",";
+    ssParam << "\"nCameraCount\":\"1\",";
+    ssParam << "\"nChnlType\":\"0\",";
+    ssParam << "\"mPTZType\":\"0\",";
+    ssParam << "\"nChnlNo\":\"1\",";
+    ssParam << "\"strChnlID01\":\"" + DeviceCode + "\",";
+    ssParam << "\"strChnlName01\":\"AVChannel1\",";
+    ssParam << "\"nAlarmInCount\":\"1\",";
+    ssParam << "\"nAlarmInChnlType\":\"1\",";
+    ssParam << "\"nAlarmInChnlNo\":\"1\",";
+    ssParam << "\"strAlarmInChnlID\":\"" + AlarmCode + "\",";
+    ssParam << "\"strAlarmInChnlName\":\"AlarmIn 01\",";
+    ssParam << "\"nTalkBackProtocol\":\"0\",";
+    ssParam << "\"nGPSInterval\":\"" + std::to_string(15) + "\"";
+    ssParam << "}";
+    ssParam << "}";
+    
+    GBSetMsgCallback(Callback,0);
+    GBSetGBTalkDataCallback(TalkDataCallback,0);
+
+    GBStartUp(ssParam.str().c_str(),0);
+    dsjet_gb_StartUploadGps();
+    int status = 0;
+    while(1)
+    {
+        // workTime--;
+        usleep(1000*1000);
+        status = GBGetRegisterStatus(0);
+        // printf("status:%d \n",status);
+    }
+    printf("GBShutDown \n");
+    GBShutDown(0);
+
+    return 0;
+}
+
+
+
+
 int main(int argc, char const *argv[])
 {
     SVR_Ops ops;
@@ -795,7 +1132,25 @@ int main(int argc, char const *argv[])
         return 0;
     }
 
+    int netCnnt = -1;
+    std::string pingCmd = "ping -c 1 www.baidu.com > /dev/null";
+    while (netCnnt != 0) {
+        netCnnt = system(pingCmd.c_str());
+        if (netCnnt == 0) {
+            LOG("cnnet success \n");
+            break;
+        } else {
+            LOG("cnnet failed \n");
+        }
+
+        sleep(1);
+    }
+
     dsjet_gb_start();
 
+    SVR_StopGetAudio();
+    SVR_StopGetVideo();
+    SVR_StopRecvAudio();
+    SVR_Deinit();
     return 0;
 }

@@ -28,7 +28,12 @@ int SVR_StartRecvAudio(void);
 int SVR_SndTaklAudio (char *data, int len, unsigned long long pts, int encode, int sampleRate);
 int SVR_StopRecvAudio(void);
 
-int SVR_SndMsg(EVENT *event);
+int SVR_Login(bool bLogin);
+int SVR_RequestFileDir(void);
+int SVR_RequestGetDevInfo(void);
+int SVR_RequestStartRec(void);
+int SVR_RequestStopRec(void);
+int SVR_RequestTakePhoto(void);
 
 #ifdef __cplusplus
 }
