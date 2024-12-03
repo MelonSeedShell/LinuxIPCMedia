@@ -68,8 +68,8 @@ int ShareAudio::send(const char* data, const int& len, const unsigned long long&
     return 0;
 }
 
-// int ShareAudio::startRecv(char** data, int& len, unsigned long long& pts, int& encode, int& frameType)
-int ShareAudio::startRecv(const AudioDataCb& videoCb)
+// int ShareAudio::recv(char** data, int& len, unsigned long long& pts, int& encode, int& frameType)
+int ShareAudio::recv(const AudioDataCb& videoCb)
 {
     if (!m_sem || !m_shm) {
         std::cerr << "no init" << std::endl;

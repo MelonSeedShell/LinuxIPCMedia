@@ -68,8 +68,8 @@ int ShareTalk::send(const char* data, const int& len, const unsigned long long& 
     return 0;
 }
 
-// int ShareTalk::startRecv(char** data, int& len, unsigned long long& pts, int& encode, int& frameType)
-int ShareTalk::startRecv(const TalkDataCb& videoCb)
+// int ShareTalk::recv(char** data, int& len, unsigned long long& pts, int& encode, int& frameType)
+int ShareTalk::recv(const TalkDataCb& videoCb)
 {
     if (!m_sem || !m_shm) {
         std::cerr << "no init" << std::endl;

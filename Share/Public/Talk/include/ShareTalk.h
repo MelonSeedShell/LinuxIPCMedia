@@ -24,7 +24,7 @@ public:
     int init();
     int deinit();
     int send(const char* data, const int& len, const unsigned long long& pts, const int& encode, const int& sampleRate);
-    int startRecv(const TalkDataCb& videoCb);
+    int recv(const TalkDataCb& videoCb);
 private:
     /* data */
     const std::string m_path = ".ShareTalk";

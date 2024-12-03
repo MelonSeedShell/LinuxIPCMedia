@@ -13,120 +13,26 @@
 #include "ShareAudio.h"
 #include "shareType.h"
 
-#if 0
-class client
-{
-public:
-    using cliEventCb = std::function<int(EVENT *pEvent)>;
-    using cliVidCb = std::function<void(char* data, int& len, unsigned long long& pts, int& encode, int& frameType)>;
-public:
-    client(/* args */);
-    ~client();
-    int init(const cliEventCb& eventCb, const cliVidCb& vidCb);
-    int deinit();
-    int start();
-    int stop();
+typedef int (*GetTalkCb) (const char *data, int len, unsigned long long pts, int encode, int sampleRate);
 
-private:
-    Msg* m_msg = nullptr;
-    ShareVideo* m_shareVid = nullptr;
 
-    cliEventCb m_eventCb = nullptr;
-    cliVidCb m_vidCb = nullptr;
-};
-
-int client::init(const cliEventCb& eventCb, const cliVidCb& vidCb)
-{
-    int ret = 0;
-    m_eventCb = eventCb;
-    m_msg = new Msg([this](const MsgContent& msg){
-        EVENT event;
-        event.eventID = (unsigned int)msg.msgId;
-        event.argv1 = msg.arg1;
-        event.result = msg.arg2;
-
-        auto now = std::chrono::system_clock::now();
-        // 将时间点转换为毫秒级的时间戳
-        auto duration = now.time_since_epoch();
-        auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(duration);
-        long long milliseconds_since_epoch = milliseconds.count();
-        event.createTime = milliseconds_since_epoch;
-        memcpy(event.aszPayload, msg.payload, sizeof(event.aszPayload));
-        m_eventCb(&event);
-    });
-
-    ret = m_msg->init();
-    if (ret < 0) {
-        std::cerr << "cli init failed , msg init failed" << std::endl;
-        return -1;
-    }
-    
-    m_vidCb = vidCb;
-
-    m_shareVid = new ShareVideo( 70 << 10);
-    ret = m_shareVid->init();
-    if (ret < 0) {
-        std::cerr << "cli init failed , vid init failed" << std::endl;
-        return -1;
-    }
-
-    return 0;
-}
-int client::deinit()
-{
-    int ret = 0;
-    if (m_shareVid) {
-        ret = m_shareVid->deinit();
-        if (ret < 0) {
-            std::cerr << "cli deinit failed , vid deinit failed" << std::endl;
-            return -1;
-        }
-        delete m_shareVid;
-    }
-
-    if (m_msg) {
-        ret = m_msg->deinit();
-        if (ret < 0) {
-            std::cerr << "cli deinit failed , msg deinit failed" << std::endl;
-            return -1;
-        }
-        delete m_msg;
-    }
-
-    return 0;
-}
-int client::start()
-{
-    if (!m_msg || !m_shareVid) {
-        std::cerr << "cli start failed , not init" << std::endl;
-        return -1;
-    }
-
-    if (m_vidCb) {
-        
-    }
-}
-int client::stop();
-
-client::client(/* args */)
-{
-}
-
-client::~client()
-{
-}
-#endif
+typedef struct {
+    EVTHUB_EVENTPROC_FN_PTR cliEventCb;
+    GetTalkCb              cliTalkCb;
+} CLI_Ops;
 
 static Msg* g_msg = nullptr;
-static EVTHUB_EVENTPROC_FN_PTR g_eventCb = nullptr;
 static ShareVideo* g_shareVid = nullptr;
 static ShareAudio* g_shareAud = nullptr;
 static ShareTalk* g_shareTalk = nullptr;
+static CLI_Ops g_cli_ops;
 
-static int init(EVTHUB_EVENTPROC_FN_PTR OnEventFn)
+
+static int init(const CLI_Ops *ops)
 {
     int ret = 0;
-    g_eventCb = OnEventFn;
+
+    memcpy(&g_cli_ops, ops, sizeof(CLI_Ops));
     g_msg = new Msg([](const MsgContent& msg){
         EVENT event;
         event.eventID = (unsigned int)msg.msgId;
@@ -134,9 +40,12 @@ static int init(EVTHUB_EVENTPROC_FN_PTR OnEventFn)
         event.result = msg.arg2;
         event.createTime = msg.time;
         memcpy(event.aszPayload, msg.payload, sizeof(event.aszPayload));
-        if (g_eventCb) {
-            g_eventCb(&event);
-        }
+
+        // if (event.eventID == EVENT_GET_VIDEO || event.eventID == EVENT_GET_AUDIO || event.eventID == EVENT_SND_TALK_AUDIO) {
+        //     msg_inner_proc(&event);
+        // } else if (g_cli_ops.cliEventCb) {
+            g_cli_ops.cliEventCb(&event);
+        // }
     });
 
     ret = g_msg->init();
@@ -152,7 +61,19 @@ static int init(EVTHUB_EVENTPROC_FN_PTR OnEventFn)
         return -1;
     }
 
+    g_shareAud = new ShareAudio(2 << 10);
+    ret = g_shareAud->init();
+    if (ret < 0) {
+        std::cerr << "cli init failed , aud init failed" << std::endl;
+        return -1;
+    }
 
+    g_shareTalk = new ShareTalk(2 << 10);
+    ret = g_shareTalk->init();
+    if (ret < 0) {
+        std::cerr << "cli init failed , talk init failed" << std::endl;
+        return -1;
+    }
 
     return 0;
 }
@@ -169,6 +90,26 @@ static int deinit(void)
         delete g_shareVid;
         g_shareVid = nullptr;
     }
+
+    if (g_shareAud) {
+        ret = g_shareAud->deinit();
+        if (ret < 0) {
+            std::cerr << "cli deinit failed , aud deinit failed" << std::endl;
+            return -1;
+        }
+        delete g_shareAud;
+        g_shareAud = nullptr;
+    }
+
+    if (g_shareTalk) {
+        ret = g_shareTalk->deinit();
+        if (ret < 0) {
+            std::cerr << "cli deinit failed , talk deinit failed" << std::endl;
+            return -1;
+        }
+        delete g_shareTalk;
+        g_shareTalk = nullptr;
+    }
 printf("cli [%s:%d]\n", __func__, __LINE__);
     if (g_msg) {
         ret = g_msg->deinit();
@@ -180,31 +121,50 @@ printf("cli [%s:%d]\n", __func__, __LINE__);
         g_msg = nullptr;
     }
 printf("cli [%s:%d]\n", __func__, __LINE__);
-    g_eventCb = nullptr;
+    g_cli_ops.cliEventCb = nullptr;
     return 0;
 }
 
 static int sendAudio(char *data, int len, unsigned long long pts, int encode, int sampleRate)
 {
+    int ret = 0;
+    if (!g_shareAud) {
+        return -1;
+    }
 
-    return 0;
+    ret = g_shareAud->send(data, len, pts, encode, sampleRate);
+    return ret;
 }
 
-static int sendVideo(char *data, int len, unsigned long long pts, int frameType, int encode)
+static int sendVideo(char *data, int len, unsigned long long pts, int encode, int frameType)
 {
     int ret = 0;
     if (!g_shareVid) {
         return -1;
     }
 
-    ret = g_shareVid->send(data, len, pts, frameType, encode);
+    ret = g_shareVid->send(data, len, pts, encode, frameType);
     return ret;
 }
 
-static int getTalkAudio(char *data, int len, unsigned long long *pts, int *encode, int *sampleRate)
+static int getTalkAudio(void)
 {
+    int ret = 0;
+    if (!g_shareTalk) {
+        return -1;
+    }
 
-    return 0;
+    ret = g_shareTalk->recv([](const char* data, const int& len, const unsigned long long& pts, const int& encode, const int& sampleRate){
+        if (g_cli_ops.cliTalkCb) {
+            g_cli_ops.cliTalkCb(data, len, pts, encode, sampleRate);
+        }
+    });
+    if (ret < 0) {
+        std::cerr << "cli get talk failed , talk recv failed" << std::endl;
+        return -1;
+    }
+
+    return ret;
 }
 
 static int sendMsg(EVENT *event)
@@ -230,9 +190,22 @@ extern "C" {
 #endif
 #endif /*  __cplusplus  */
 
-int CLI_Init(EVTHUB_EVENTPROC_FN_PTR OnEventFn)
+typedef struct {
+    bool isStart = false;
+    std::thread* workProc = NULL;
+    std::mutex mtx;
+} pub_task;
+
+typedef struct {
+    pub_task sendVideo;
+    pub_task sendAudio;
+    pub_task getTalk;
+} cli_task;
+static cli_task g_cli_task;
+
+int CLI_Init(const CLI_Ops *ops)
 {
-    return init(OnEventFn);
+    return init(ops);
 }
 int CLI_Deinit()
 {
@@ -241,15 +214,93 @@ int CLI_Deinit()
 
 int CLI_SndAudio (char *data, int len, unsigned long long pts, int encode, int sampleRate)
 {
-    return sendAudio(data, len, pts, encode, sampleRate);
+    int maxCnt = 10;
+    int cnt = 0;
+    int ret = 0;
+    while (1) {
+        ret = sendAudio(data, len, pts, encode, sampleRate);
+        if (ret < 0) {
+            if (maxCnt <= cnt) {
+                EVENT event = {0};
+                event.eventID = EVENT_GET_AUDIO;
+                event.argv1 = false;
+                event.result = 0;
+                sendMsg(&event);
+                break;
+            }
+            cnt ++;
+            continue;
+        }
+
+        break;
+    }
+    return ret;
 }
-int CLI_SndVIDEO (char *data, int len, unsigned long long pts, int frameType, int encode)
+int CLI_SndVIDEO (char *data, int len, unsigned long long pts, int encode, int frameType)
 {
-    return sendVideo(data, len, pts, frameType, encode);
+    int maxCnt = 10;
+    int cnt = 0;
+    int ret = 0;
+    while (1) {
+        ret = sendVideo(data, len, pts, encode, frameType);
+        if (ret < 0) {
+            if (maxCnt <= cnt) {
+                EVENT event = {0};
+                event.eventID = EVENT_GET_VIDEO;
+                event.argv1 = false;
+                event.result = 0;
+                sendMsg(&event);
+                break;
+            }
+            cnt ++;
+            continue;
+        }
+
+        break;
+    }
+
+    return ret;
 }
-int CLI_GetTalkAudio (char *data, int len, unsigned long long *pts, int *encode, int *sampleRate)
+int CLI_StartProcTalk(void)
 {
-    return getTalkAudio(data, len, pts, encode, sampleRate);
+    std::lock_guard<std::mutex> lock(g_cli_task.getTalk.mtx);
+    if (g_cli_task.getTalk.isStart) {
+        printf("[%s]has started\n", __func__);
+        return 0;
+    }
+
+    if (g_cli_task.getTalk.workProc) {
+        printf("need delete\n");
+        delete g_cli_task.getTalk.workProc;
+        g_cli_task.getTalk.workProc = NULL;
+    }
+    g_cli_task.getTalk.isStart = true;
+    g_cli_task.getTalk.workProc = new std::thread([](){
+        int ret = 0;
+        int MaxFailedCnt = 10;
+        int needReset = 5;
+        int failedCnt = 0;
+        while (g_cli_task.getTalk.isStart) {
+            ret = getTalkAudio();
+            if (ret < 0) {
+                if (failedCnt > MaxFailedCnt) {
+                    printf("getTalkAudio failed cnt out max, exit\n");
+                    EVENT event = {0};
+                    event.eventID = EVENT_SND_TALK_AUDIO;
+                    event.argv1 = false;
+                    event.result = 0;
+                    sendMsg(&event);
+
+                    break;
+                }
+                failedCnt++;
+                continue;
+            }
+            failedCnt = 0;
+        }
+        g_cli_task.getTalk.isStart = false;
+    });
+    return 0;
 }
 int CLI_SndMsg(EVENT *event)
 {
@@ -268,29 +319,33 @@ typedef struct {
     std::mutex mtx;
 } demo_task;
 
-typedef struct {
-    demo_task sendVideo;
-    demo_task sendAudio;
-    demo_task getTalk;
-} cli_task;
-static cli_task g_cli_task;
+#define TEST_SAVE_VIDEO
+#define TEST_SAVE_AUDIO
+#define TEST_SAVE_TALK
+static FILE* g_video_fp = NULL;
+static FILE* g_audio_fp = NULL;
+static FILE* g_talk_fp = NULL;
+
+static demo_task g_video_task;
+static demo_task g_audio_task;
+
 static int cli_read_and_send_h265video(void)
 {
-    std::lock_guard<std::mutex> lock(g_cli_task.sendVideo.mtx);
-    if (g_cli_task.sendVideo.isStart) {
+    std::lock_guard<std::mutex> lock(g_video_task.mtx);
+    if (g_video_task.isStart) {
         printf("has already send video\n");
         return 0;
     }
 
-    if (g_cli_task.sendVideo.workProc) {
+    if (g_video_task.workProc) {
         printf("need delete\n");
-        delete g_cli_task.sendVideo.workProc;
-        g_cli_task.sendVideo.workProc = NULL;
+        delete g_video_task.workProc;
+        g_video_task.workProc = NULL;
     }
 
-    g_cli_task.sendVideo.workProc = new std::thread([](){
+    g_video_task.workProc = new std::thread([](){
         int ret = 0;
-        g_cli_task.sendVideo.isStart = true;
+        g_video_task.isStart = true;
         std::string file = "main_app";
         FILE* fp = fopen(file.c_str(), "rb");
         if (!fp) {
@@ -299,13 +354,9 @@ static int cli_read_and_send_h265video(void)
         }
 
         FILE* sendSaveFp = fopen("cli_send_save", "wb");
-
-        int autoAfterSendFailedmaxCnt = 10;
-        int sendFailedCnt = 0;
-
         int dataLen = 1024 * 8;
         char* data = new char[dataLen];
-        while (g_cli_task.sendVideo.isStart) {
+        while (g_video_task.isStart) {
             size_t readLen = fread(data, 1, dataLen, fp);
             if (readLen <= 0) {
                 printf("fread failed, exit\n");
@@ -314,18 +365,12 @@ static int cli_read_and_send_h265video(void)
 
             ret = CLI_SndVIDEO(data, readLen, 0, 0, 0);
             if (ret < 0) {
-                printf("CLI_SndVIDEO failed\n");
-                if (autoAfterSendFailedmaxCnt < sendFailedCnt) {
-                    printf("CLI_SndVIDEO failed cnt out max, exit\n");
-                    break;
-                }
-                sendFailedCnt ++;
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                printf("CLI_SndVIDEO failed, exit\n");
+                break;
             }
             if (sendSaveFp) {
                 fwrite(data, 1, readLen, sendSaveFp);
             }
-            sendFailedCnt = 0;
         }
 
         fclose(fp);
@@ -342,11 +387,11 @@ static int cli_read_and_send_h265video(void)
 }
 static int cli_stop_send_video(void)
 {
-    g_cli_task.sendVideo.isStart = false;
-    if (g_cli_task.sendVideo.workProc) {
-        g_cli_task.sendVideo.workProc->join();
-        delete g_cli_task.sendVideo.workProc;
-        g_cli_task.sendVideo.workProc = NULL;
+    g_video_task.isStart = false;
+    if (g_video_task.workProc) {
+        g_video_task.workProc->join();
+        delete g_video_task.workProc;
+        g_video_task.workProc = NULL;
     }
 
     EVENT event;
@@ -407,17 +452,29 @@ static int cli_callback (EVENT *event)
 }
 
 
+static int cli_talk_callback(const char *data, int len, unsigned long long pts, int frameType, int encode)
+{
+    printf("[%s]len:%d\n", __func__, len);
+    if (g_talk_fp) {
+        fwrite(data, 1, len, g_talk_fp);
+    }
+    return 0;
+}
+
 int main()
 {
     int ret = 0;
-    ret = CLI_Init(cli_callback);
+    CLI_Ops ops;
+    ops.cliEventCb = cli_callback;
+    ops.cliTalkCb = cli_talk_callback;
+    ret = CLI_Init(&ops);
     if (ret < 0) {
         perror("CLI_Init failed\n");
         return -1;
     }
 
     int maxCnt = 0;
-
+    g_talk_fp = fopen("cli_save_talk_file", "wb");
     // cli_read_and_send_h265video();
 
     while (maxCnt < 30) {

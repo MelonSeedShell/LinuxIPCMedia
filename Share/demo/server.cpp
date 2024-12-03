@@ -8,12 +8,14 @@
 #include <mutex>
 #include "Msg.h"
 #include "ShareVideo.h"
+#include "ShareTalk.h"
+#include "ShareAudio.h"
 #include "shareType.h"
 
 
 
 typedef int (*GetAudioCb) (const char *data, int len, unsigned long long pts, int encode, int sampleRate);
-typedef int (*GetVideoCb) (const char *data, int len, unsigned long long pts, int frameType, int encode);
+typedef int (*GetVideoCb) (const char *data, int len, unsigned long long pts, int encode, int frameType);
 
 typedef struct {
     EVTHUB_EVENTPROC_FN_PTR svrEventCb;
@@ -23,6 +25,8 @@ typedef struct {
 
 static Msg* g_msg = nullptr;
 static ShareVideo* g_shareVid = nullptr;
+static ShareAudio* g_shareAud = nullptr;
+static ShareTalk* g_shareTalk = nullptr;
 static SVR_Ops g_svr_ops;
 
 static int init(const SVR_Ops *ops)
@@ -58,6 +62,19 @@ static int init(const SVR_Ops *ops)
         return -1;
     }
 
+    g_shareAud = new ShareAudio(2 << 10);
+    ret = g_shareAud->init();
+    if (ret < 0) {
+        std::cerr << "svr init failed , aud init failed" << std::endl;
+        return -1;
+    }
+
+    g_shareTalk = new ShareTalk(2 << 10);
+    ret = g_shareTalk->init();
+    if (ret < 0) {
+        std::cerr << "svr init failed , talk init failed" << std::endl;
+        return -1;
+    }
     
     return 0;
 }
@@ -68,11 +85,31 @@ static int deinit(void)
     if (g_shareVid) {
         ret = g_shareVid->deinit();
         if (ret < 0) {
-            std::cerr << "cli deinit failed , vid deinit failed" << std::endl;
+            std::cerr << "svr deinit failed , vid deinit failed" << std::endl;
             return -1;
         }
         delete g_shareVid;
         g_shareVid = nullptr;
+    }
+
+    if (g_shareAud) {
+        ret = g_shareAud->deinit();
+        if (ret < 0) {
+            std::cerr << "svr deinit failed , aud deinit failed" << std::endl;
+            return -1;
+        }
+        delete g_shareAud;
+        g_shareAud = nullptr;
+    }
+
+    if (g_shareTalk) {
+        ret = g_shareTalk->deinit();
+        if (ret < 0) {
+            std::cerr << "svr deinit failed , talk deinit failed" << std::endl;
+            return -1;
+        }
+        delete g_shareTalk;
+        g_shareTalk = nullptr;
     }
 
     if (g_msg) {
@@ -86,12 +123,6 @@ static int deinit(void)
     }
 
     memset(&g_svr_ops, 0, sizeof(SVR_Ops));
-    return 0;
-}
-
-static int getAudio(void)
-{
-
     return 0;
 }
 
@@ -112,15 +143,34 @@ static int sendMsg(EVENT *event)
     return ret;
 }
 
-// static int getVideo(char** data, int& len, unsigned long long& pts, int& encode, int& frameType)
+static int getAudio(void)
+{
+    int ret = 0;
+    if (!g_shareAud) {
+        return -1;
+    }
+
+    ret = g_shareAud->recv([](const char* data, const int& len, const unsigned long long& pts, const int& encode, const int& sampleRate){
+        if (g_svr_ops.svrAudioCb) {
+            g_svr_ops.svrAudioCb(data, len, pts, encode, sampleRate);
+        }
+    });
+    if (ret < 0) {
+        std::cerr << "svr get audio failed , aud recv failed" << std::endl;
+        return -1;
+    }
+
+    return ret;
+}
+
 static int getVideo(void)
 {
     int ret = 0;
     if (!g_shareVid) {
         return -1;
     }
-    // ret = g_shareVid->startRecv(data, len, pts, encode, frameType);
-    ret = g_shareVid->startRecv([](const char* data, const int& len, const unsigned long long& pts, const int& encode, const int& frameType){
+    // ret = g_shareVid->recv(data, len, pts, encode, frameType);
+    ret = g_shareVid->recv([](const char* data, const int& len, const unsigned long long& pts, const int& encode, const int& frameType){
         if (g_svr_ops.svrVideoCb) {
             g_svr_ops.svrVideoCb(data, len, pts, encode, frameType);
         }
@@ -133,15 +183,16 @@ static int getVideo(void)
     return ret;
 }
 
-
-static int sendTalkAudio(char *data, int len, unsigned long long *pts, int *encode, int *sampleRate)
+static int sendTalkAudio(const char *data, int len, unsigned long long pts, int encode, int sampleRate)
 {
+    int ret = 0;
+    if (!g_shareTalk) {
+        return -1;
+    }
 
-    return 0;
+    ret = g_shareTalk->send(data, len, pts, encode, sampleRate);
+    return ret;
 }
-
-
-
 
 #ifdef __cplusplus
 #if __cplusplus
@@ -153,12 +204,12 @@ typedef struct {
     bool isStart = false;
     std::thread* workProc = NULL;
     std::mutex mtx;
-} demo_task;
+} pub_task;
 
 typedef struct {
-    demo_task getVideo;
-    demo_task getAudio;
-    demo_task sendTalk;
+    pub_task getVideo;
+    pub_task getAudio;
+    pub_task sendTalk;
 } svr_task;
 static svr_task g_svr_task;
 
@@ -172,10 +223,71 @@ int SVR_Deinit(void)
 }
 int SVR_StartGetAudio(void)
 {
-    return getAudio();
+    std::lock_guard<std::mutex> lock(g_svr_task.getAudio.mtx);
+    EVENT event;
+    event.eventID = EVENT_GET_AUDIO;
+    event.argv1 = true;
+    event.result = -1;
+    sendMsg(&event);
+
+    if (g_svr_task.getAudio.isStart) {
+        printf("has started\n");
+        return 0;
+    }
+
+    if (g_svr_task.getAudio.workProc) {
+        printf("need delete\n");
+        delete g_svr_task.getAudio.workProc;
+        g_svr_task.getAudio.workProc = NULL;
+    }
+
+    g_svr_task.getAudio.isStart = true;
+    g_svr_task.getAudio.workProc = new std::thread([](){
+        int ret = 0;
+        int MaxFailedCnt = 10;
+        int needReset = 5;
+        int failedCnt = 0;
+        while (g_svr_task.getAudio.isStart) {
+            ret = getAudio();
+            if (ret < 0) {
+                if (failedCnt > MaxFailedCnt) {
+                    printf("getVideo failed cnt out max, exit\n");
+                    break;
+                }
+                
+                if (failedCnt == needReset) {
+                    EVENT event;
+                    event.eventID = EVENT_GET_AUDIO;
+                    event.argv1 = true;
+                    event.result = -1;
+                    sendMsg(&event);
+                }
+                failedCnt++;
+                printf("getAudio failed failedCnt:%d \n", failedCnt);
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                continue;
+            }
+            failedCnt = 0;
+        }
+        g_svr_task.getAudio.isStart = false;
+    });
+
+    return 0;
 }
 int SVR_StopGetAudio(void)
 {
+    EVENT event;
+    event.eventID = EVENT_GET_AUDIO;
+    event.argv1 = false;
+    event.result = -1;
+    sendMsg(&event);
+
+    g_svr_task.getAudio.isStart = false;
+    if (g_svr_task.getAudio.workProc) {
+        g_svr_task.getAudio.workProc->join();
+        delete g_svr_task.getAudio.workProc;
+        g_svr_task.getAudio.workProc = NULL;
+    }
     return 0;
 }
 int SVR_StartGetVideo(void)
@@ -253,35 +365,96 @@ int SVR_StopGetVideo(void)
     if (g_svr_task.getVideo.workProc) {
         g_svr_task.getVideo.workProc->join();
         delete g_svr_task.getVideo.workProc;
+        g_svr_task.getVideo.workProc = NULL;
     }
     return 0;
 }
 
-int SVR_StartRecvAudio(void)
+int SVR_RequestTalk(bool bTalk)
 {
-    return 0;
+    EVENT event;
+    event.eventID = EVENT_SND_TALK_AUDIO;
+    event.argv1 = bTalk;
+    event.result = -1;
+    return sendMsg(&event);
 }
-int SVR_SndTaklAudio (char *data, int len, unsigned long long pts, int encode, int sampleRate)
+int SVR_SndTalkAudio (const char *data, int len, unsigned long long pts, int encode, int sampleRate)
 {
-    return 0;
-}
-int SVR_StopRecvAudio(void)
-{
-    return 0;
+    int ret = 0;
+    ret = sendTalkAudio(data, len, pts, encode, sampleRate);
+    if (ret < 0) {
+        EVENT event;
+        event.eventID = EVENT_SND_TALK_AUDIO;
+        event.argv1 = true;
+        event.result = -1;
+        sendMsg(&event);
+    }
+    return ret;
 }
 
-int SVR_Login(bool bLogin);
-int SVR_RequestFileDir(void);
-int SVR_RequestGetDevInfo(void);
-int SVR_RequestStartRec(void);
-int SVR_RequestStopRec(void);
-int SVR_RequestTakePhoto(void);
+int SVR_Login(bool bLogin)
+{
+    EVENT event;
+    event.eventID = EVENT_LOGIN_STATUS;
+    event.argv1 = bLogin;
+    event.result = -1;
+    return sendMsg(&event);
+}
+int SVR_RequestFileDir(void)
+{
+    EVENT event;
+    event.eventID = EVENT_CTL_GET_DIR;
+    return sendMsg(&event); 
+}
+int SVR_RequestGetDevInfo(void)
+{
+    EVENT event;
+    event.eventID = EVENT_CTL_GET_DEV_INFO;
+    return sendMsg(&event);
+}
+int SVR_RequestStartRec(void)
+{
+    EVENT event;
+    event.eventID = EVENT_CTL_START_REC;
+    event.argv1 = true;
+    event.result = -1;
+    return sendMsg(&event);
+}
+int SVR_RequestStopRec(void)
+{
+    EVENT event;
+    event.eventID = EVENT_CTL_START_REC;
+    event.argv1 = false;
+    event.result = -1;
+    return sendMsg(&event);
+}
+int SVR_RequestTakePhoto(void)
+{
+    EVENT event;
+    event.eventID = EVENT_CTL_TAKE_PHOTO;
+    event.result = -1;
+    return sendMsg(&event);
+}
 #ifdef __cplusplus
 #if __cplusplus
 }
 #endif
 #endif /*  __cplusplus  */
 
+typedef struct {
+    bool isStart = false;
+    std::thread* workProc = NULL;
+    std::mutex mtx;
+} demo_task;
+
+#define TEST_SAVE_VIDEO
+#define TEST_SAVE_AUDIO
+#define TEST_SAVE_TALK
+static FILE* g_video_fp = NULL;
+static FILE* g_audio_fp = NULL;
+static FILE* g_talk_fp = NULL;
+
+static demo_task g_talk_task;
 
 static int svr_callback (EVENT *event) 
 {
@@ -330,13 +503,16 @@ static int svr_callback (EVENT *event)
 
 static int svr_GetAudioCb(const char *data, int len, unsigned long long pts, int encode, int sampleRate)
 {
+    printf("[%s:%d]len:%d\n", __func__, __LINE__, len);
+    if (g_audio_fp) {
+        fwrite(data, 1, len, g_audio_fp);
+    }
     return 0;
 }
 
-static FILE* g_video_fp = NULL;
 static int svr_GetVideoCb(const char *data, int len, unsigned long long pts, int frameType, int encode)
 {
-    printf("[%s]len:%d\n", __func__, len);
+    printf("[%s:%d]len:%d\n", __func__, __LINE__, len);
     if (g_video_fp) {
         fwrite(data, 1, len, g_video_fp);
     }
@@ -358,8 +534,10 @@ int main()
 
     int maxCnt = 0;
     long startEventID = EVENT_GET_VIDEO;
-    g_video_fp = fopen("svr_save_video_file.main_app", "wb");
+    g_video_fp = fopen("svr_save_video_file", "wb");
+    g_audio_fp = fopen("svr_save_audio_file", "wb");
     SVR_StartGetVideo();
+    SVR_StartGetAudio();
     while (maxCnt < 30) {
     //     if (startEventID < EVENT_BUTT) {
     //         printf("startEventID:%ld\n", startEventID);

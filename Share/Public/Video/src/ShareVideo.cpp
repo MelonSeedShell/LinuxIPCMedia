@@ -68,8 +68,8 @@ int ShareVideo::send(const char* data, const int& len, const unsigned long long&
     return 0;
 }
 
-// int ShareVideo::startRecv(char** data, int& len, unsigned long long& pts, int& encode, int& frameType)
-int ShareVideo::startRecv(const VideoDataCb& videoCb)
+// int ShareVideo::recv(char** data, int& len, unsigned long long& pts, int& encode, int& frameType)
+int ShareVideo::recv(const VideoDataCb& videoCb)
 {
     if (!m_sem || !m_shm) {
         std::cerr << "no init" << std::endl;

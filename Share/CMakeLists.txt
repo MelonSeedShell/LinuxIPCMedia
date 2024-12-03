@@ -16,6 +16,7 @@ aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR}/Msg/src Msg)
 aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR}/Public/Video/src VIDEO)
 aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR}/Public/Audio/src AUDIO)
 aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR}/Public/Talk/src TALK)
+add_library(AVdataShare SHARED ${Sem} ${Shm} ${Msg} ${VIDEO} ${AUDIO} ${TALK})
 add_library(Share ${Sem} ${Shm} ${Msg} ${VIDEO} ${AUDIO} ${TALK})
 
 add_executable(serverShare ${CMAKE_CURRENT_SOURCE_DIR}/demo/server.cpp)

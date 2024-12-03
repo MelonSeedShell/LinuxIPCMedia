@@ -25,8 +25,8 @@ public:
     int init();
     int deinit();
     int send(const char* data, const int& len, const unsigned long long& pts, const int& encode, const int& frameType);
-    // int startRecv(char** data, int& len, unsigned long long& pts, int& encode, int& frameType);
-    int startRecv(const VideoDataCb& videoCb);
+    // int recv(char** data, int& len, unsigned long long& pts, int& encode, int& frameType);
+    int recv(const VideoDataCb& videoCb);
 private:
     /* data */
     const std::string m_path = ".shareVideo";
