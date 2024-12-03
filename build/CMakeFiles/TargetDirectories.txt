@@ -1,3 +1,0 @@
-/home/cxl/project/avShare/build/CMakeFiles/rebuild_cache.dir
-/home/cxl/project/avShare/build/CMakeFiles/avShareSvr.dir
-/home/cxl/project/avShare/build/CMakeFiles/edit_cache.dir

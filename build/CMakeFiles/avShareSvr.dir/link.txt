@@ -1,1 +1,0 @@
-/opt/hisi-linux/x86-arm/arm-himix100-linux/bin/arm-himix100-linux-g++   -pthread   CMakeFiles/avShareSvr.dir/hi3556/src/main.cpp.o CMakeFiles/avShareSvr.dir/hi3556/dsjet_gb/src/timer.cpp.o  -o avShareSvr  -L/home/cxl/project/avShare/hi3556/lib -Wl,-rpath,/home/cxl/project/avShare/hi3556/lib -Wl,--start-group -lAVdataShare -lgb28181_jni -Wl,--end-group 

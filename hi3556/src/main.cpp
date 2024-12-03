@@ -86,8 +86,9 @@ std::vector<std::vector<std::string>> paramVector = {
 };
 std::map<std::string, std::string> ParamMap;
 
-
 std::map<std::string, std::string> GBParamMap = {
+    {"Enable", "1"},
+    {"ConnectType", "1"},
     {"PlatformIP", "211.139.163.62"},
     {"PlatformPort", "6608"},
     {"PlatformCode", "44010200495000000001"},
@@ -95,8 +96,25 @@ std::map<std::string, std::string> GBParamMap = {
     {"DeviceCode", "44010200495000000036"},
     {"AlarmCode", "44010200495000000036"},
     {"UserName", "admin"},
+    {"UserID", "44010200495000000036"},
     {"Password", "ok123456"},
     {"ModelName", "F1H"},
+    {"DevListenPort", "11339"},
+    {"ExpiresTime", "3600"},
+    {"KeepAliveTime", "10"},
+    {"CameraCount", "1"},
+    {"ChnlType", "0"},
+    {"PTZType", "0"},
+    {"ChnlNo", "1"},
+    {"ChnlID01", "44010200495000000036"},
+    {"ChnlName01", "AVChannel1"},
+    {"AlarmInCount", "1"},
+    {"AlarmInChnlType", "1"},
+    {"AlarmInChnlNo", "1"},
+    {"AlarmInChnlID", "44010200495000000036"},
+    {"AlarmInChnlName", "AlarmIn 01"},
+    {"TalkBackProtocol", "0"},
+    {"GPSInterval", "15"},
 };
 
 typedef struct {
@@ -1047,17 +1065,77 @@ int dsjet_gb_start(void)
         file.close();
     }
 
-    std::string PlatformIP, PlatformPort, PlatformCode, DeviceDomainName, DeviceCode, AlarmCode, UserName, Password, ModelName;
+    int netCnnt = -1;
+    std::string pingCmd = "ping -c 1 www.baidu.com > /dev/null";
+    while (netCnnt != 0) {
+        netCnnt = system(pingCmd.c_str());
+        if (netCnnt == 0) {
+            LOG("cnnet success \n");
+            break;
+        } else {
+            LOG("cnnet failed \n");
+        }
 
-    ret = getValueFromParam(PlatformIP, "PlatformIP", GBParamMap);
+        sleep(1);
+    }
+
+    std::string Enable,
+                ConnectType,
+                PlatformIP, 
+                PlatformPort, 
+                PlatformCode, 
+                DeviceDomainName, 
+                DeviceCode, 
+                AlarmCode, 
+                UserName, 
+                UserID,
+                Password, 
+                ModelName,
+                DevListenPort,
+                ExpiresTime,
+                KeepAliveTime,
+                CameraCount,
+                ChnlType,
+                PTZType,
+                ChnlNo,
+                ChnlID01,
+                ChnlName01,
+                AlarmInCount,
+                AlarmInChnlType,
+                AlarmInChnlNo,
+                AlarmInChnlID,
+                AlarmInChnlName,
+                TalkBackProtocol,
+                GPSInterval;
+
+    ret |= getValueFromParam(Enable, "Enable", GBParamMap);
+    ret |= getValueFromParam(ConnectType, "ConnectType", GBParamMap);
+    ret |= getValueFromParam(PlatformIP, "PlatformIP", GBParamMap);
     ret |= getValueFromParam(PlatformPort, "PlatformPort", GBParamMap);
     ret |= getValueFromParam(PlatformCode, "PlatformCode", GBParamMap);
     ret |= getValueFromParam(DeviceDomainName, "DeviceDomainName", GBParamMap);
     ret |= getValueFromParam(DeviceCode, "DeviceCode", GBParamMap);
     ret |= getValueFromParam(AlarmCode, "AlarmCode", GBParamMap);
     ret |= getValueFromParam(UserName, "UserName", GBParamMap);
+    ret |= getValueFromParam(UserID, "UserID", GBParamMap);
     ret |= getValueFromParam(Password, "Password", GBParamMap);
     ret |= getValueFromParam(ModelName, "ModelName", GBParamMap);
+    ret |= getValueFromParam(DevListenPort, "DevListenPort", GBParamMap);
+    ret |= getValueFromParam(ExpiresTime, "ExpiresTime", GBParamMap);
+    ret |= getValueFromParam(KeepAliveTime, "KeepAliveTime", GBParamMap);
+    ret |= getValueFromParam(CameraCount, "CameraCount", GBParamMap);
+    ret |= getValueFromParam(ChnlType, "ChnlType", GBParamMap);
+    ret |= getValueFromParam(PTZType, "PTZType", GBParamMap);
+    ret |= getValueFromParam(ChnlNo, "ChnlNo", GBParamMap);
+    ret |= getValueFromParam(ChnlID01, "ChnlID01", GBParamMap);
+    ret |= getValueFromParam(ChnlName01, "ChnlName01", GBParamMap);
+    ret |= getValueFromParam(AlarmInCount, "AlarmInCount", GBParamMap);
+    ret |= getValueFromParam(AlarmInChnlType, "AlarmInChnlType", GBParamMap);
+    ret |= getValueFromParam(AlarmInChnlNo, "AlarmInChnlNo", GBParamMap);
+    ret |= getValueFromParam(AlarmInChnlID, "AlarmInChnlID", GBParamMap);
+    ret |= getValueFromParam(AlarmInChnlName, "AlarmInChnlName", GBParamMap);
+    ret |= getValueFromParam(TalkBackProtocol, "TalkBackProtocol", GBParamMap);
+    ret |= getValueFromParam(GPSInterval, "GPSInterval", GBParamMap);
 
     if (ret < 0) {
         LOG("init dsjet gb config failed \n");
@@ -1067,8 +1145,8 @@ int dsjet_gb_start(void)
     ssParam << "{";
     ssParam << "\"Platform\":";
     ssParam << "{";
-    ssParam << "\"nEnable\":\"1 \",";
-    ssParam << "\"nConnectType\":\"1\",";
+    ssParam << "\"nEnable\":\"" + Enable +"\",";
+    ssParam << "\"nConnectType\":\"" + ConnectType +"\",";
     ssParam << "\"strPlatformIP\":\"" + PlatformIP +"\",";
     ssParam << "\"nPlatformPort\":\"" + PlatformPort +"\",";
     ssParam << "\"strPlatformCode\":\"" + PlatformCode +"\",";
@@ -1076,28 +1154,28 @@ int dsjet_gb_start(void)
     ssParam << "\"strDevCode\":\"" + DeviceCode +"\",";
     ssParam << "\"strAlarmCode\":\"" + AlarmCode +"\",";
     ssParam << "\"strUserName\":\"" + UserName +"\",";
-    ssParam << "\"strUserID\":\"" + DeviceCode +"\",";
+    ssParam << "\"strUserID\":\"" + UserID +"\",";
     ssParam << "\"strPassword\":\"" + Password +"\",";
     ssParam << "\"strModel\":\"" + ModelName +"\",";
-    ssParam << "\"nDevListenPort\":\"" + std::to_string(mDevListenPort) +"\",";
-    ssParam << "\"nExpiresTime\":\"3600\",";
-    ssParam << "\"nKeepAliveTime\":\"10\",";
-    ssParam << "\"nCameraCount\":\"1\",";
-    ssParam << "\"nChnlType\":\"0\",";
-    ssParam << "\"mPTZType\":\"0\",";
-    ssParam << "\"nChnlNo\":\"1\",";
-    ssParam << "\"strChnlID01\":\"" + DeviceCode + "\",";
-    ssParam << "\"strChnlName01\":\"AVChannel1\",";
-    ssParam << "\"nAlarmInCount\":\"1\",";
-    ssParam << "\"nAlarmInChnlType\":\"1\",";
-    ssParam << "\"nAlarmInChnlNo\":\"1\",";
-    ssParam << "\"strAlarmInChnlID\":\"" + AlarmCode + "\",";
-    ssParam << "\"strAlarmInChnlName\":\"AlarmIn 01\",";
-    ssParam << "\"nTalkBackProtocol\":\"0\",";
-    ssParam << "\"nGPSInterval\":\"" + std::to_string(15) + "\"";
+    ssParam << "\"nDevListenPort\":\"" + DevListenPort +"\",";
+    ssParam << "\"nExpiresTime\":\"" + ExpiresTime +"\",";
+    ssParam << "\"nKeepAliveTime\":\"" + KeepAliveTime +"\",";
+    ssParam << "\"nCameraCount\":\"" + CameraCount +"\",";
+    ssParam << "\"nChnlType\":\"" + ChnlType +"\",";
+    ssParam << "\"mPTZType\":\"" + PTZType +"\",";
+    ssParam << "\"nChnlNo\":\"" + ChnlNo +"\",";
+    ssParam << "\"strChnlID01\":\"" + ChnlID01 + "\",";
+    ssParam << "\"strChnlName01\":\"" + ChnlName01 + "\",";
+    ssParam << "\"nAlarmInCount\":\"" + AlarmInCount + "\",";
+    ssParam << "\"nAlarmInChnlType\":\"" + AlarmInChnlType + "\",";
+    ssParam << "\"nAlarmInChnlNo\":\"" + AlarmInChnlNo + "\",";
+    ssParam << "\"strAlarmInChnlID\":\"" + AlarmInChnlID + "\",";
+    ssParam << "\"strAlarmInChnlName\":\"" + AlarmInChnlName + "\",";
+    ssParam << "\"nTalkBackProtocol\":\"" + TalkBackProtocol + "\",";
+    ssParam << "\"nGPSInterval\":\"" + GPSInterval + "\"";
     ssParam << "}";
     ssParam << "}";
-    
+    LOG("ssParam:%s\n",ssParam.str().c_str());
     GBSetMsgCallback(Callback,0);
     GBSetGBTalkDataCallback(TalkDataCallback,0);
 
@@ -1130,20 +1208,6 @@ int main(int argc, char const *argv[])
     int ret = SVR_Init(&ops);
     if (ret < 0) {
         return 0;
-    }
-
-    int netCnnt = -1;
-    std::string pingCmd = "ping -c 1 www.baidu.com > /dev/null";
-    while (netCnnt != 0) {
-        netCnnt = system(pingCmd.c_str());
-        if (netCnnt == 0) {
-            LOG("cnnet success \n");
-            break;
-        } else {
-            LOG("cnnet failed \n");
-        }
-
-        sleep(1);
     }
 
     dsjet_gb_start();
