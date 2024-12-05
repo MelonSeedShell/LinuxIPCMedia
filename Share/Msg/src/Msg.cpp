@@ -4,12 +4,13 @@
 #include <sys/types.h>
 #include <sys/ipc.h>
 #include <sys/msg.h>
+#include <errno.h>
 #include <unistd.h>
 #include <cstdio>
 #include <chrono>
 #include "Msg.h"
 
-Msg::Msg(const msgCb& cb):m_cb(cb)
+Msg::Msg(const msgCb& cb, const bool& isClient):m_cb(cb),m_isClient(isClient)
 {
 }
 
@@ -39,7 +40,7 @@ int Msg::init()
     if (m_msgid == -1) {
         m_msgid = msgget(m_key, IPC_CREAT | 0666);
         if (m_msgid == -1) {
-            perror("init failed, msgget failed\n");
+            // perror("init failed, msgget failed\n");
             return -1;
         }
 
@@ -70,7 +71,7 @@ int Msg::deinit()
     }
     // 标记消息队列可删除（在实际结束程序时可执行此操作）
     if (msgctl(m_msgid, IPC_RMID, NULL) == -1) {
-        perror("deinit failed, msgctl failed\n");
+        // perror("deinit failed, msgctl failed\n");
         return -1;
     }
 
@@ -84,13 +85,18 @@ int Msg::deinit()
 int Msg::send(const MsgContent& msg)
 {
     if (m_msgid == -1) {
-        std::cerr << "msg send failed, because not init " << std::endl;
+        // std::cerr << "msg send failed, because not init " << std::endl;
         return -1;
     }
 
-    MsgCtx msgCtx = {msg.msgId, msg};
-    if (msgsnd(m_msgid, &msgCtx, sizeof(msgCtx.msgContent), 0) == -1) {
-        std::cerr << "msg send failed, because msgsnd failed " << std::endl;
+    MsgCtx msgCtx = {0, msg};
+    if (m_isClient) {
+        msgCtx.msgId = 2;
+    } else {
+        msgCtx.msgId = 1;
+    }
+    
+    if (msgsnd(m_msgid, &msgCtx, sizeof(msgCtx.msgContent), IPC_NOWAIT) == -1) {
         return -1;
     }
 
@@ -112,15 +118,19 @@ int Msg::recvProc()
 
     m_recvThread = new std::thread([this](){
         MsgCtx msgCtx;
+
+        long msgType = 0;
+        if (m_isClient) {
+            msgType = 1;
+        } else {
+            msgType = 2;
+        }
         m_proc = true;
         while (m_proc) {
-            if (msgrcv(m_msgid, &msgCtx, sizeof(msgCtx.msgContent), 0, IPC_NOWAIT) == -1) {
-                // std::cerr << "msg recv failed" << std::endl;
-                std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+            if (msgrcv(m_msgid, &msgCtx, sizeof(msgCtx.msgContent), msgType, 0) == -1) {
                 continue;
             }
             m_cb(msgCtx.msgContent);
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
     });
 

@@ -1,6 +1,7 @@
 #pragma once
 #include <string>
 #include <thread>
+#include <cstdlib>
 #include <functional>
 
 typedef struct {
@@ -21,7 +22,7 @@ class Msg
 public:
     using msgCb = std::function<void(const MsgContent& msg)>;
 public:
-    Msg(const msgCb& cb);
+    Msg(const msgCb& cb, const bool& isClient);
     ~Msg();
 
     int init();
@@ -33,11 +34,14 @@ private:
     int recvProc();
 
 private:
-    const std::string m_path = ".msg";
+    // const std::string m_path = std::string(getenv("HOME")) + ".msg";
+    const std::string m_path = "/tmp/.msg";
     msgCb m_cb;
 
     bool m_proc = false;
     std::thread* m_recvThread = nullptr;
+
+    bool m_isClient;
 
     bool m_isCreator = false;
     int m_key = -1;

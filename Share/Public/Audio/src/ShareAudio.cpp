@@ -21,16 +21,16 @@ int ShareAudio::send(const char* data, const int& len, const unsigned long long&
     }
 
     if (!m_addr) {
-        std::cerr << "send failed, mmap share addr is null" << std::endl;
+        // std::cerr << "send failed, mmap share addr is null" << std::endl;
         return -1;
     }
-
+    int maxWaitReadFlg = 200;
+    int waitReadCnt = 0;
     while (1) {
         int ret = 0;
-        ret = m_sem->waitTmOut(__MAX_CNT__);
-        // ret = m_sem->wait();
+        ret = m_sem->waitTmOut(__MAX_WAIT_MS__);
         if (ret != 0) {
-            std::cerr << "send failed, wait failed" << std::endl;
+            // std::cerr << "send failed, wait failed" << std::endl;
             return -1;
         }
 
@@ -58,7 +58,11 @@ int ShareAudio::send(const char* data, const int& len, const unsigned long long&
             // std::cerr << "send failed, share addr need read, head->state:" + std::to_string(head->state) << std::endl;
             // printf("send failed, head->state:%d\n", head->state);
             m_sem->signal();
-            // std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            if (waitReadCnt >= maxWaitReadFlg) {
+                return -1;
+            }
+            waitReadCnt += 10;
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
             continue;
         }
     }
@@ -77,19 +81,22 @@ int ShareAudio::recv(const AudioDataCb& videoCb)
     }
 
     if (!m_addr) {
-        std::cerr << "recv failed, mmap share addr is null" << std::endl;
+        // std::cerr << "recv failed, mmap share addr is null" << std::endl;
         // std::this_thread::sleep_for(std::chrono::milliseconds(1000));
         return -1;
     }
 
+    int maxWaitReadFlg = 200;
+    int waitReadCnt = 0;
     while (1) {
         int ret = 0;
-        ret = m_sem->waitTmOut(1);
+        ret = m_sem->waitTmOut(__MAX_WAIT_MS__);
         if (ret != 0) {
-            if (__MAX_CNT__ <= m_waitRecvFailedCnt) {
+            if (__MAX_CNT__ == m_waitRecvFailedCnt && !m_semReset) {
                 m_sem->signal();
+                m_semReset = true;
             }
-            printf("wait failed\n");
+            // printf("wait failed\n");
             m_waitRecvFailedCnt ++;
             return -1;
         }
@@ -100,11 +107,16 @@ int ShareAudio::recv(const AudioDataCb& videoCb)
             unsigned int headLen = sizeof(AudioShareHead);
             videoCb(m_addr + headLen, head->dataLen, head->pts, head->encode, head->sampleRate);
             head->state = 0;
+            waitReadCnt = 0;
             break;
         } else {
             // printf("recv failed, head->state:%d\n", head->state);
             m_sem->signal();
-            // std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            if (waitReadCnt >= maxWaitReadFlg) {
+                return -1;
+            }
+            waitReadCnt += 10;
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
             continue;
         }
     }
@@ -142,24 +154,24 @@ int ShareAudio::init()
 
     ret = m_sem->init();
     if (ret < 0) {
-        std::cerr << "video init failed, sem init failed" << std::endl;
+        // std::cerr << "video init failed, sem init failed" << std::endl;
         return ret;
     }
 
     ret = m_shm->init();
     if (ret < 0) {
-        std::cerr << "video init failed, shm init failed" << std::endl;
+        // std::cerr << "video init failed, shm init failed" << std::endl;
         return ret;
     }
 
     ret = m_shm->mmap((void**)&m_addr);
     if (ret < 0) {
-        std::cerr << "video init failed, mmap share failed" << std::endl;
+        // std::cerr << "video init failed, mmap share failed" << std::endl;
         return -1;
     }
 
     if (!m_addr) {
-        std::cerr << "video init failed, mmap share addr is null" << std::endl;
+        // std::cerr << "video init failed, mmap share addr is null" << std::endl;
         return -1;
     }
 
@@ -175,17 +187,17 @@ int ShareAudio::deinit()
 
     ret = m_shm->unmmap((void**)&m_addr);
     if (ret < 0) {
-        std::cerr << "deinit failed, unmmap share failed" << std::endl;
+        // std::cerr << "deinit failed, unmmap share failed" << std::endl;
     }
     m_addr = nullptr;
 
     if (m_shm) {
         if (m_sem) {
-            m_sem->waitTmOut(5);
+            m_sem->waitTmOut(__MAX_WAIT_MS__);
         }
         ret = m_shm->deinit();
         if (ret < 0) {
-            std::cerr << "video deinit failed, shm deinit failed" << std::endl;
+            // std::cerr << "video deinit failed, shm deinit failed" << std::endl;
             return ret;
         }
 
@@ -194,21 +206,20 @@ int ShareAudio::deinit()
     }
 
     if (m_sem) {
-        // m_sem->waitTmOut(1);
         ret = m_sem->deinit();
         if (ret < 0) {
-            std::cerr << "video deinit failed, sem deinit failed" << std::endl;
+            // std::cerr << "video deinit failed, sem deinit failed" << std::endl;
             return ret;
         }
         delete m_sem;
         m_sem = nullptr;
     }
-printf("%s\n", __func__);
+
     if (!m_isCreator) {
         return 0;
     }
     remove(m_path.c_str());
     m_isCreator = false;
-printf("%s:del file\n", __func__);
+
     return 0;
 }

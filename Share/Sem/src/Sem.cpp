@@ -3,7 +3,8 @@
 #include <sys/ipc.h>
 #include <sys/sem.h>
 #include <semaphore.h>
-
+#include <chrono>
+#include <thread>
 #include <cstring>
 #include <stdlib.h>
 #include <stdio.h>
@@ -32,17 +33,17 @@ int Sem::init()
 
     m_key = ftok(m_path.c_str(), 'b');
     if (m_key == -1) {
-        perror("ftok for sem");
+        // perror("ftok for sem");
         return -1;
     }
 
     // 获取信号量标识符
     m_semId = semget(m_key, 1, 0666);
     if (m_semId == -1) {
-        printf("need create sem\n");
+        // printf("need create sem\n");
         m_semId = semget(m_key, 1, IPC_CREAT | 0666);
         if (m_semId == -1) {
-            perror("create sem failed\n");
+            // perror("create sem failed\n");
             return -1;
         }
         m_isCreator = true;
@@ -50,11 +51,11 @@ int Sem::init()
         union semun arg;
         arg.val = 1;
         if (semctl(m_semId, 0, SETVAL, arg) == -1) {
-            perror("semctl SETVAL failed\n");
+            // perror("semctl SETVAL failed\n");
             return -1;
         }
         
-        printf("create sem, key:%d, semid:%d\n", m_key, m_semId);
+        // printf("create sem, key:%d, semid:%d\n", m_key, m_semId);
     }
 
     return 0;
@@ -70,7 +71,7 @@ int Sem::deinit()
     }
     // 删除信号量
     if (semctl(m_semId, 0, IPC_RMID, NULL) == -1) {
-        perror("semctl IPC_RMID failed\n");
+        // perror("semctl IPC_RMID failed\n");
         return -1;
     }
     
@@ -81,56 +82,52 @@ int Sem::deinit()
 int Sem::wait()
 {
     if (m_semId == -1) {
-        perror("sem not init\n");
+        // perror("sem not init\n");
         return -1;
     }
 
     struct sembuf sops = {0, -1, 0};
     if (semop(m_semId, &sops, 1) == -1) {
-        perror("wait, semop failed\n");
+        // perror("wait, semop failed\n");
         return -1;
     }
 
     return 0;
 }
 
-int Sem::waitTmOut(const int& timeSec)
+int Sem::waitTmOut(const int& timeMS)
 {
     if (m_semId == -1) {
-        perror("sem not init\n");
+        // perror("sem not init\n");
         return -1;
     }
 
     // 设置超时时间
-    struct timespec ts;
-    struct sembuf sops = {0, -1, 0};
-    // clock_gettime(CLOCK_REALTIME, &ts);
-    ts.tv_sec = timeSec;
-    ts.tv_nsec = 0;
+    int sleepTimeCnt = 0;
+    struct sembuf sops = {0, -1, IPC_NOWAIT};
+    int result = -1;
     // 尝试进行带有超时的信号量等待
-    int result = semtimedop(m_semId, &sops, 1, &ts);
-    if (result == -1) {
-        if (errno == ETIMEDOUT) {
-            // printf("信号量等待超时。\n");
-            return -1;
+    while (1) {
+        result = semop(m_semId, &sops, 1);
+        if (result != -1 || sleepTimeCnt >= timeMS) {
+            break;
         }
-
-        // perror("semtimedop failed\n");
-        return -1;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        sleepTimeCnt ++ ;
     }
 
-    return 0;
+    return result;
 }
 int Sem::signal()
 {
     if (m_semId == -1) {
-        perror("sem not init\n");
+        // perror("sem not init\n");
         return -1;
     }
 
     struct sembuf sops = {0, 1, 0};
     if (semop(m_semId, &sops, 1) == -1) {
-        perror("signal, semop failed\n");
+        // perror("signal, semop failed\n");
         return -1;
     }
 

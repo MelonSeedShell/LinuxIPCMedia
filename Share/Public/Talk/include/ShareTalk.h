@@ -1,6 +1,7 @@
 #pragma once
 #include <thread>
 #include <functional>
+#include <cstdlib>
 #include "Sem.h"
 #include "Shm.h"
 
@@ -27,14 +28,17 @@ public:
     int recv(const TalkDataCb& videoCb);
 private:
     /* data */
-    const std::string m_path = ".ShareTalk";
+    // const std::string m_path = std::string(getenv("HOME")) + ".ShareTalk";
+    const std::string m_path = "/tmp/.ShareTalk";
     bool m_isCreator = false;
 
+    bool m_semReset = false;
     Sem* m_sem = nullptr;
     Shm* m_shm = nullptr;
 
+    const int __MAX_WAIT_MS__ = 128;
     const int __MAX_CNT__ = 3;
-    int m_waitRecvFailedCnt = 0;
+    unsigned int m_waitRecvFailedCnt = 0;
     unsigned long m_size = 0;
     char* m_addr = nullptr;
 

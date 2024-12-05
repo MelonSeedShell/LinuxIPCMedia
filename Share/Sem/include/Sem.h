@@ -9,7 +9,7 @@ public:
     int init();
     int deinit();
     int wait();
-    int waitTmOut(const int& timeSec);
+    int waitTmOut(const int& timeMS);
     int signal();
 
 private:

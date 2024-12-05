@@ -6,22 +6,13 @@
 #include <cstdlib>
 #include <string.h>
 #include <mutex>
+#include <memory>
 #include "Msg.h"
 #include "ShareVideo.h"
 #include "ShareTalk.h"
 #include "ShareAudio.h"
 #include "shareType.h"
-
-
-
-typedef int (*GetAudioCb) (const char *data, int len, unsigned long long pts, int encode, int sampleRate);
-typedef int (*GetVideoCb) (const char *data, int len, unsigned long long pts, int encode, int frameType);
-
-typedef struct {
-    EVTHUB_EVENTPROC_FN_PTR svrEventCb;
-    GetAudioCb              svrAudioCb;
-    GetVideoCb              svrVideoCb;
-} SVR_Ops;
+#include "server.h"
 
 static Msg* g_msg = nullptr;
 static ShareVideo* g_shareVid = nullptr;
@@ -47,32 +38,32 @@ static int init(const SVR_Ops *ops)
         if (g_svr_ops.svrEventCb) {
             g_svr_ops.svrEventCb(&event);
         }
-    });
+    }, false);
 
     ret = g_msg->init();
     if (ret < 0) {
-        std::cerr << "svr init failed , msg init failed" << std::endl;
+        // std::cerr << "svr init failed , msg init failed" << std::endl;
         return -1;
     }
 
     g_shareVid = new ShareVideo(70 << 10);
     ret = g_shareVid->init();
     if (ret < 0) {
-        std::cerr << "svr init failed , vid init failed" << std::endl;
+        // std::cerr << "svr init failed , vid init failed" << std::endl;
         return -1;
     }
 
     g_shareAud = new ShareAudio(2 << 10);
     ret = g_shareAud->init();
     if (ret < 0) {
-        std::cerr << "svr init failed , aud init failed" << std::endl;
+        // std::cerr << "svr init failed , aud init failed" << std::endl;
         return -1;
     }
 
     g_shareTalk = new ShareTalk(2 << 10);
     ret = g_shareTalk->init();
     if (ret < 0) {
-        std::cerr << "svr init failed , talk init failed" << std::endl;
+        // std::cerr << "svr init failed , talk init failed" << std::endl;
         return -1;
     }
     
@@ -85,7 +76,7 @@ static int deinit(void)
     if (g_shareVid) {
         ret = g_shareVid->deinit();
         if (ret < 0) {
-            std::cerr << "svr deinit failed , vid deinit failed" << std::endl;
+            // std::cerr << "svr deinit failed , vid deinit failed" << std::endl;
             return -1;
         }
         delete g_shareVid;
@@ -95,7 +86,7 @@ static int deinit(void)
     if (g_shareAud) {
         ret = g_shareAud->deinit();
         if (ret < 0) {
-            std::cerr << "svr deinit failed , aud deinit failed" << std::endl;
+            // std::cerr << "svr deinit failed , aud deinit failed" << std::endl;
             return -1;
         }
         delete g_shareAud;
@@ -105,7 +96,7 @@ static int deinit(void)
     if (g_shareTalk) {
         ret = g_shareTalk->deinit();
         if (ret < 0) {
-            std::cerr << "svr deinit failed , talk deinit failed" << std::endl;
+            // std::cerr << "svr deinit failed , talk deinit failed" << std::endl;
             return -1;
         }
         delete g_shareTalk;
@@ -115,7 +106,7 @@ static int deinit(void)
     if (g_msg) {
         ret = g_msg->deinit();
         if (ret < 0) {
-            std::cerr << "cli deinit failed , msg deinit failed" << std::endl;
+            // std::cerr << "cli deinit failed , msg deinit failed" << std::endl;
             return -1;
         }
         delete g_msg;
@@ -155,8 +146,9 @@ static int getAudio(void)
             g_svr_ops.svrAudioCb(data, len, pts, encode, sampleRate);
         }
     });
+
     if (ret < 0) {
-        std::cerr << "svr get audio failed , aud recv failed" << std::endl;
+        // std::cerr << "svr get audio failed , aud recv failed" << std::endl;
         return -1;
     }
 
@@ -169,14 +161,15 @@ static int getVideo(void)
     if (!g_shareVid) {
         return -1;
     }
-    // ret = g_shareVid->recv(data, len, pts, encode, frameType);
+
     ret = g_shareVid->recv([](const char* data, const int& len, const unsigned long long& pts, const int& encode, const int& frameType){
         if (g_svr_ops.svrVideoCb) {
             g_svr_ops.svrVideoCb(data, len, pts, encode, frameType);
         }
     });
+
     if (ret < 0) {
-        std::cerr << "svr get video failed , vid recv failed" << std::endl;
+        // std::cerr << "svr get video failed , vid recv failed" << std::endl;
         return -1;
     }
 
@@ -202,7 +195,7 @@ extern "C" {
 
 typedef struct {
     bool isStart = false;
-    std::thread* workProc = NULL;
+    std::shared_ptr<std::thread> workProc = nullptr;
     std::mutex mtx;
 } pub_task;
 
@@ -231,18 +224,18 @@ int SVR_StartGetAudio(void)
     sendMsg(&event);
 
     if (g_svr_task.getAudio.isStart) {
-        printf("has started\n");
+        printf("[%s]has started\n", __func__);
         return 0;
     }
 
-    if (g_svr_task.getAudio.workProc) {
-        printf("need delete\n");
-        delete g_svr_task.getAudio.workProc;
-        g_svr_task.getAudio.workProc = NULL;
+    if (g_svr_task.getAudio.workProc && g_svr_task.getAudio.workProc->joinable()) {
+        printf("[%s]wait end ...\n", __func__);
+        g_svr_task.getAudio.workProc->join();
+        printf("[%s]wait end , and restart\n", __func__);
     }
 
     g_svr_task.getAudio.isStart = true;
-    g_svr_task.getAudio.workProc = new std::thread([](){
+    g_svr_task.getAudio.workProc = std::make_shared<std::thread>([](){
         int ret = 0;
         int MaxFailedCnt = 10;
         int needReset = 5;
@@ -251,7 +244,7 @@ int SVR_StartGetAudio(void)
             ret = getAudio();
             if (ret < 0) {
                 if (failedCnt > MaxFailedCnt) {
-                    printf("getVideo failed cnt out max, exit\n");
+                    // printf("getAudio failed cnt out max, exit\n");
                     break;
                 }
                 
@@ -263,7 +256,7 @@ int SVR_StartGetAudio(void)
                     sendMsg(&event);
                 }
                 failedCnt++;
-                printf("getAudio failed failedCnt:%d \n", failedCnt);
+                // printf("getAudio failed failedCnt:%d \n", failedCnt);
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
                 continue;
             }
@@ -283,10 +276,9 @@ int SVR_StopGetAudio(void)
     sendMsg(&event);
 
     g_svr_task.getAudio.isStart = false;
-    if (g_svr_task.getAudio.workProc) {
+    if (g_svr_task.getAudio.workProc && g_svr_task.getAudio.workProc->joinable()) {
         g_svr_task.getAudio.workProc->join();
-        delete g_svr_task.getAudio.workProc;
-        g_svr_task.getAudio.workProc = NULL;
+        g_svr_task.getAudio.workProc = nullptr;
     }
     return 0;
 }
@@ -300,18 +292,18 @@ int SVR_StartGetVideo(void)
     sendMsg(&event);
 
     if (g_svr_task.getVideo.isStart) {
-        printf("has started\n");
+        printf("[%s]has started\n", __func__);
         return 0;
     }
 
-    if (g_svr_task.getVideo.workProc) {
-        printf("need delete\n");
-        delete g_svr_task.getVideo.workProc;
-        g_svr_task.getVideo.workProc = NULL;
+    if (g_svr_task.getVideo.workProc && g_svr_task.getVideo.workProc->joinable()) {
+        printf("[%s]wait end ...\n", __func__);
+        g_svr_task.getVideo.workProc->join();
+        printf("[%s]wait end , and restart\n", __func__);
     }
 
     g_svr_task.getVideo.isStart = true;
-    g_svr_task.getVideo.workProc = new std::thread([](){
+    g_svr_task.getVideo.workProc = std::make_shared<std::thread>([](){
         int ret = 0;
         int MaxFailedCnt = 10;
         int needReset = 5;
@@ -342,10 +334,6 @@ int SVR_StartGetVideo(void)
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
                 continue;
             }
-
-            // if (g_svr_ops.svrVideoCb) {
-            //     g_svr_ops.svrVideoCb(data, len, pts, encode, frameType);
-            // }
             failedCnt = 0;
         }
         g_svr_task.getVideo.isStart = false;
@@ -355,6 +343,7 @@ int SVR_StartGetVideo(void)
 }
 int SVR_StopGetVideo(void)
 {
+    // printf("[%s:%d] \n", __func__,__LINE__);
     EVENT event;
     event.eventID = EVENT_GET_VIDEO;
     event.argv1 = false;
@@ -362,11 +351,11 @@ int SVR_StopGetVideo(void)
     sendMsg(&event);
 
     g_svr_task.getVideo.isStart = false;
-    if (g_svr_task.getVideo.workProc) {
+    if (g_svr_task.getVideo.workProc && g_svr_task.getVideo.workProc->joinable()) {
         g_svr_task.getVideo.workProc->join();
-        delete g_svr_task.getVideo.workProc;
-        g_svr_task.getVideo.workProc = NULL;
+        g_svr_task.getVideo.workProc = nullptr;
     }
+    // printf("[%s:%d] \n", __func__,__LINE__);
     return 0;
 }
 
@@ -440,125 +429,3 @@ int SVR_RequestTakePhoto(void)
 }
 #endif
 #endif /*  __cplusplus  */
-
-typedef struct {
-    bool isStart = false;
-    std::thread* workProc = NULL;
-    std::mutex mtx;
-} demo_task;
-
-#define TEST_SAVE_VIDEO
-#define TEST_SAVE_AUDIO
-#define TEST_SAVE_TALK
-static FILE* g_video_fp = NULL;
-static FILE* g_audio_fp = NULL;
-static FILE* g_talk_fp = NULL;
-
-static demo_task g_talk_task;
-
-static int svr_callback (EVENT *event) 
-{
-    // printf("%s\n", __func__);
-    switch (event->eventID) 
-    {
-        case EVENT_GET_VIDEO:
-            printf("EVENT_GET_VIDEO, argv1:%d\n", event->argv1);
-            break;
-        case EVENT_GET_AUDIO:
-            printf("EVENT_GET_AUDIO, argv1:%d\n", event->argv1);
-            break;
-        case EVENT_SND_TALK_AUDIO:
-            printf("EVENT_SND_TALK_AUDIO, argv1:%d\n", event->argv1);
-
-            break;
-        case EVENT_CTL_START_REC:
-            printf("EVENT_CTL_START_REC, argv1:%d\n", event->argv1);
-            break;
-        case EVENT_CTL_TAKE_PHOTO:
-            printf("EVENT_CTL_TAKE_PHOTO, argv1:%d\n", event->argv1);
-
-            break;
-        case EVENT_CTL_GET_DIR:
-            printf("EVENT_CTL_GET_DIR, argv1:%d\n", event->argv1);
-            break;
-        case EVENT_CTL_GET_DEV_INFO:
-            printf("EVENT_CTL_GET_DEV_INFO, argv1:%d\n", event->argv1);
-            break;
-        case EVENT_CTL_SOS:
-            printf("EVENT_CTL_SOS, argv1:%d\n", event->argv1);
-            break;
-        case EVENT_LOGIN_STATUS:
-            printf("EVENT_LOGIN_STATUS, argv1:%d\n", event->argv1);
-            break;
-        default:
-            break;
-    }
-    // printf("===============\n");
-    // if (event->argv1 > 0) {
-    //     event->argv1--;
-    //     sendMsg(event);
-    // }
-    return 0;
-}
-
-static int svr_GetAudioCb(const char *data, int len, unsigned long long pts, int encode, int sampleRate)
-{
-    printf("[%s:%d]len:%d\n", __func__, __LINE__, len);
-    if (g_audio_fp) {
-        fwrite(data, 1, len, g_audio_fp);
-    }
-    return 0;
-}
-
-static int svr_GetVideoCb(const char *data, int len, unsigned long long pts, int frameType, int encode)
-{
-    printf("[%s:%d]len:%d\n", __func__, __LINE__, len);
-    if (g_video_fp) {
-        fwrite(data, 1, len, g_video_fp);
-    }
-    return 0;
-}
-int main()
-{
-    int ret = 0;
-    SVR_Ops ops;
-    ops.svrAudioCb = svr_GetAudioCb;
-    ops.svrVideoCb = svr_GetVideoCb;
-    ops.svrEventCb = svr_callback;
-
-    ret = SVR_Init(&ops);
-    if (ret < 0) {
-        printf("SVR_Init failed \n");
-        return ret;
-    }
-
-    int maxCnt = 0;
-    long startEventID = EVENT_GET_VIDEO;
-    g_video_fp = fopen("svr_save_video_file", "wb");
-    g_audio_fp = fopen("svr_save_audio_file", "wb");
-    SVR_StartGetVideo();
-    SVR_StartGetAudio();
-    while (maxCnt < 30) {
-    //     if (startEventID < EVENT_BUTT) {
-    //         printf("startEventID:%ld\n", startEventID);
-    //         EVENT event;
-    //         event.eventID = startEventID;
-    //         event.argv1 = 2;
-    //         sendMsg(&event);
-    //         startEventID++;
-    //     }
-    // SVR_StartGetVideo();
-        maxCnt++;
-        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-    }
-
-    fclose(g_video_fp);
-
-    ret = SVR_Deinit();
-    if (ret < 0) {
-        printf("SVR_Deinit failed \n");
-        return ret;
-    }
-
-    return 0;
-}
