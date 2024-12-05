@@ -1,0 +1,16 @@
+{
+    "files.associations": {
+        "*.xml": "xml",
+        "vector": "cpp",
+        "string": "cpp",
+        "iostream": "cpp",
+        "functional": "cpp",
+        "new": "cpp",
+        "ostream": "cpp",
+        "*.tcc": "cpp",
+        "fstream": "cpp",
+        "iosfwd": "cpp",
+        "cstdlib": "cpp",
+        "cstring": "cpp"
+    }
+}
