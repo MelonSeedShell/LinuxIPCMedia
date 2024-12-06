@@ -23,6 +23,11 @@
 
 #include <stdarg.h>
 #include <stdio.h>
+
+
+#include <csignal>
+#include <cstdlib>
+
 static void testLog(const char *func, int line, char *fmt, ...)
 {
     va_list args;
@@ -116,6 +121,32 @@ typedef struct {
 } AudioWorkStates;
 
 static AudioWorkStates g_audio_work_states;
+
+void signal_handler(int signum, siginfo_t* info, void* context) {
+    std::cout << "Received SIGTERM signal. Exiting gracefully." << std::endl;
+
+        LOG("info.si_signo:%d\n", info->si_signo);
+        LOG("info.si_code:%d\n", info->si_code);
+        LOG("info.si_errno:%d\n", info->si_errno);
+        LOG("info.si_addr:%p \n",info->si_addr);
+        LOG("info.si_status:%s\n", info->si_status);
+        LOG("info.si_band:%s\n", info->si_band);
+    // 清理资源等操作
+    std::exit(0);
+}
+
+void signal_cap(void)
+{
+    struct sigaction stAct;
+    sigemptyset(&stAct.sa_mask);
+    stAct.sa_flags = SA_SIGINFO;
+    stAct.sa_sigaction = signal_handler;
+
+    sigaction(SIGSEGV, &stAct, NULL);
+    sigaction(SIGFPE, &stAct, NULL);
+    sigaction(SIGABRT, &stAct, NULL);
+    sigaction(SIGBUS, &stAct, NULL);
+}
 
 static std::string getJsonStringVal(const char* msg, const char* key)
 {
@@ -578,36 +609,6 @@ static int pfnEventCB(EVENT *event)
     return 0;
 }
 
-/*
-static void sendVideo()
-{
-    char[] buf;
-    int videoFrameRate = 25;
-    //sps
-    if((buf[3] == 0x01) && (buf[4] == 0x67))
-    {
-        GBSetVideoInfo(ENCODE_TYPE_H264, mUploadWidth, mUploadHeight, videoFrameRate, buf, buf.length,0);
-    }
-    //pps
-    else if((buf[3] == 0x01) && (buf[4] == 0x68))
-    {
-        GBSetVideoInfo(ENCODE_TYPE_H264, mUploadWidth, mUploadHeight, videoFrameRate, buf, buf.length,0);
-    }
-    //i frame
-    else if (buf[4] == 0x65)
-    {
-        GBPushRealTimeVideoFrame(FRAME_TYPE_I, ENCODE_TYPE_H264, buf, buf.length, mUploadWidth, mUploadHeight, videoFrameRate,0);
-    }
-    //p frame
-    else
-    {
-        GBPushRealTimeVideoFrame(FRAME_TYPE_P, ENCODE_TYPE_H264, buf, buf.length, mUploadWidth, mUploadHeight, videoFrameRate,0);
-    }
-}
-
-    GBPushRealTimeAudioFrame(FRAME_TYPE_A, ENCODE_TYPE_PCM, mRecordBuffer, readBytes,
-                            8000, 16, 1,0);
-*/
 int Callback(int iType, const char* szMessage, int iMsgLen, void* pUserParam, int idx)
 {
     LOG("%s,iType: %d ,szMessage: %s ,iMsgLen: %d idx:%d \n",__FUNCTION__,iType,szMessage,iMsgLen,idx);
@@ -688,7 +689,7 @@ int Callback(int iType, const char* szMessage, int iMsgLen, void* pUserParam, in
 int TalkDataCallback(const unsigned char* szData, int iLen, int iSampleRate, int iSampleSize,
     int iChannels, long lTimeStamp, void* pUserParam,int idx)
 {
-    LOG("iLen: %d ,iSampleRate: %d ,iChannels: %d idx:%d \n",iLen,iSampleRate,iChannels,idx);
+    // LOG("iLen: %d ,iSampleRate: %d ,iChannels: %d idx:%d \n",iLen,iSampleRate,iChannels,idx);
     int ret = 0;
 #ifdef TEST_TALK
     if (g_talkFp != NULL) {
@@ -705,7 +706,7 @@ int TalkDataCallback(const unsigned char* szData, int iLen, int iSampleRate, int
         LOG("SVR_SndTalkAudio failed \n");
         SVR_RequestTalk(true);
     }
-
+    // LOG("\n");
     return 0;
 }
 
@@ -915,6 +916,7 @@ int dsjet_gb_start(void)
 
 int main(int argc, char const *argv[])
 {
+    signal_cap();
     SVR_Ops ops;
     memset(&ops, 0, sizeof(ops));
     ops.svrEventCb = pfnEventCB;

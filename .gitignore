@@ -1,1 +1,15 @@
 build
+.shareVideo
+cli_save_talk_file
+cli_send_save
+config.cmake
+main_app
+svr_save_audio_file
+svr_save_video_file
+svr_save_video_file.h265
+svr_save_video_file.main_app
+svr_save_video_file.pkf
+svr_save_video_file.wav
+test_video.h265
+test.pkf
+test.wav

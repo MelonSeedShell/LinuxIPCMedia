@@ -36,7 +36,7 @@ int ShareVideo::send(const char* data, const int& len, const unsigned long long&
         }
 
         VideoShareHead* head = (VideoShareHead*)m_addr;
-        // printf("send state:%d, addr:0x%x, dataLen:%d\n", head->state, head->addr, head->dataLen);
+        // printf("send state:%d, dataLen:%d\n", head->state, head->dataLen);
         if (head->state == 0) {//0:need write, 1:need read
             unsigned int headLen = sizeof(VideoShareHead);
             unsigned long writeDataLen = 0;
@@ -57,9 +57,9 @@ int ShareVideo::send(const char* data, const int& len, const unsigned long long&
             break;
         } else {
             // std::cerr << "send failed, share addr need read, head->state:" + std::to_string(head->state) << std::endl;
-            // printf("send failed, head->state:%d\n", head->state);
             m_sem->signal();
             if (waitReadCnt >= maxWaitReadFlg) {
+                // printf("send failed, head->state:%d\n", head->state);
                 return -1;
             }
             waitReadCnt += waitTimeMs;
@@ -112,9 +112,9 @@ int ShareVideo::recv(const VideoDataCb& videoCb)
             waitReadCnt = 0;
             break;
         } else {
-            // printf("recv failed, head->state:%d\n", head->state);
             m_sem->signal();
             if (waitReadCnt >= maxWaitReadFlg) {
+                // printf("recv failed, head->state:%d\n", head->state);
                 return -1;
             }
             waitReadCnt += waitTimeMs;

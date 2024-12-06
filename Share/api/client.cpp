@@ -21,6 +21,9 @@ static ShareAudio* g_shareAud = nullptr;
 static ShareTalk* g_shareTalk = nullptr;
 static CLI_Ops g_cli_ops;
 
+extern "C" {
+    static int msg_proc_inner(EVENT *event);
+}
 
 static int init(const CLI_Ops *ops)
 {
@@ -38,8 +41,9 @@ static int init(const CLI_Ops *ops)
         // if (event.eventID == EVENT_GET_VIDEO || event.eventID == EVENT_GET_AUDIO || event.eventID == EVENT_SND_TALK_AUDIO) {
         //     msg_inner_proc(&event);
         // } else if (g_cli_ops.cliEventCb) {
-            g_cli_ops.cliEventCb(&event);
+            // g_cli_ops.cliEventCb(&event);
         // }
+        msg_proc_inner(&event);
     }, true);
 
     ret = g_msg->init();
@@ -196,10 +200,84 @@ typedef struct {
     pub_task getTalk;
 } cli_task;
 static cli_task g_cli_task;
+static cli_task g_daemon_task;
+
+static int creat_daemon_task(void)
+{
+    if (!g_daemon_task.sendVideo.isStart) {
+        g_daemon_task.sendVideo.isStart = true;
+        g_daemon_task.sendVideo.workProc = std::make_shared<std::thread>([](){
+            while (g_daemon_task.sendVideo.isStart) {
+                g_daemon_task.sendVideo.mtx.lock();
+                EVENT event = {0};
+                event.eventID = EVENT_GET_VIDEO;
+                event.argv1 = false;
+                event.result = 0;
+                msg_proc_inner(&event);
+            }
+        });
+    }
+
+    if (!g_daemon_task.sendAudio.isStart) {
+        g_daemon_task.sendAudio.isStart = true;
+        g_daemon_task.sendAudio.workProc = std::make_shared<std::thread>([](){
+            while (g_daemon_task.sendAudio.isStart) {
+                g_daemon_task.sendAudio.mtx.lock();
+                EVENT event = {0};
+                event.eventID = EVENT_GET_AUDIO;
+                event.argv1 = false;
+                event.result = 0;
+                msg_proc_inner(&event);
+            }
+        });
+    }
+
+    if (!g_daemon_task.getTalk.isStart) {
+        g_daemon_task.getTalk.isStart = true;
+        g_daemon_task.getTalk.workProc = std::make_shared<std::thread>([](){
+            while (g_daemon_task.getTalk.isStart) {
+                g_daemon_task.getTalk.mtx.lock();
+                EVENT event = {0};
+                event.eventID = EVENT_SND_TALK_AUDIO;
+                event.argv1 = false;
+                event.result = 0;
+                msg_proc_inner(&event);
+            }
+        });
+    }
+
+    return 0;
+}
+static int msg_proc_inner(EVENT *event)
+{
+    switch (event->eventID)
+    {
+        case EVENT_GET_VIDEO:
+            printf("EVENT_GET_VIDEO, argv1:%d\n", event->argv1);
+            break;
+        case EVENT_GET_AUDIO:
+            printf("EVENT_GET_AUDIO, argv1:%d\n", event->argv1);
+            break;
+        case EVENT_SND_TALK_AUDIO:
+            printf("EVENT_SND_TALK_AUDIO, argv1:%d\n", event->argv1);
+            break;
+    }
+
+    if (g_cli_ops.cliEventCb) {
+        g_cli_ops.cliEventCb(event);
+    }
+    return 0;
+}
 
 int CLI_Init(const CLI_Ops *ops)
 {
-    return init(ops);
+    int ret = 0;
+    ret = init(ops);
+    if (ret < 0) {
+        printf("CLI_Init failed\n");
+        return -1;
+    }
+    return creat_daemon_task();
 }
 int CLI_Deinit()
 {
@@ -219,7 +297,10 @@ int CLI_SndAudio (char *data, int len, unsigned long long pts, int encode, int s
                 event.eventID = EVENT_GET_AUDIO;
                 event.argv1 = false;
                 event.result = 0;
-                sendMsg(&event);
+                ret = sendMsg(&event);
+                if (ret < 0) {
+                    g_daemon_task.sendAudio.mtx.unlock();
+                }
                 break;
             }
             cnt ++;
@@ -244,7 +325,10 @@ int CLI_SndVIDEO (char *data, int len, unsigned long long pts, int encode, int f
                 event.eventID = EVENT_GET_VIDEO;
                 event.argv1 = false;
                 event.result = 0;
-                sendMsg(&event);
+                ret = sendMsg(&event);
+                if (ret < 0) {
+                    g_daemon_task.sendVideo.mtx.unlock();
+                }
                 break;
             }
             cnt ++;
@@ -287,7 +371,10 @@ int CLI_StartProcTalk(void)
                     event.eventID = EVENT_SND_TALK_AUDIO;
                     event.argv1 = false;
                     event.result = 0;
-                    sendMsg(&event);
+                    ret = sendMsg(&event);
+                    if (ret < 0) {
+                        g_daemon_task.getTalk.mtx.unlock();
+                    }
 
                     break;
                 }

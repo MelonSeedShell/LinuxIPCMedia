@@ -20,6 +20,10 @@ static ShareAudio* g_shareAud = nullptr;
 static ShareTalk* g_shareTalk = nullptr;
 static SVR_Ops g_svr_ops;
 
+extern "C" {
+    static int msg_proc_inner(EVENT *event);
+}
+
 static int init(const SVR_Ops *ops)
 {
     int ret = 0;
@@ -35,9 +39,11 @@ static int init(const SVR_Ops *ops)
         event.result = msg.arg2;
         event.createTime = msg.time;
         memcpy(event.aszPayload, msg.payload, sizeof(event.aszPayload));
-        if (g_svr_ops.svrEventCb) {
-            g_svr_ops.svrEventCb(&event);
-        }
+        // if (g_svr_ops.svrEventCb) {
+        //     g_svr_ops.svrEventCb(&event);
+        // }
+
+        msg_proc_inner(&event);
     }, false);
 
     ret = g_msg->init();
@@ -205,10 +211,84 @@ typedef struct {
     pub_task sendTalk;
 } svr_task;
 static svr_task g_svr_task;
+static svr_task g_daemon_task;
+
+static int creat_daemon_task(void)
+{
+    if (!g_daemon_task.getVideo.isStart) {
+        g_daemon_task.getVideo.isStart = true;
+        g_daemon_task.getVideo.workProc = std::make_shared<std::thread>([](){
+            while (g_daemon_task.getVideo.isStart) {
+                g_daemon_task.getVideo.mtx.lock();
+                EVENT event = {0};
+                event.eventID = EVENT_GET_VIDEO;
+                event.argv1 = false;
+                event.result = 0;
+                msg_proc_inner(&event);
+            }
+        });
+    }
+
+    if (!g_daemon_task.getAudio.isStart) {
+        g_daemon_task.getAudio.isStart = true;
+        g_daemon_task.getAudio.workProc = std::make_shared<std::thread>([](){
+            while (g_daemon_task.getAudio.isStart) {
+                g_daemon_task.getAudio.mtx.lock();
+                EVENT event = {0};
+                event.eventID = EVENT_GET_AUDIO;
+                event.argv1 = false;
+                event.result = 0;
+                msg_proc_inner(&event);
+            }
+        });
+    }
+
+    if (!g_daemon_task.sendTalk.isStart) {
+        g_daemon_task.sendTalk.isStart = true;
+        g_daemon_task.sendTalk.workProc = std::make_shared<std::thread>([](){
+            while (g_daemon_task.sendTalk.isStart) {
+                g_daemon_task.sendTalk.mtx.lock();
+                EVENT event = {0};
+                event.eventID = EVENT_SND_TALK_AUDIO;
+                event.argv1 = false;
+                event.result = 0;
+                msg_proc_inner(&event);
+            }
+        });
+    }
+
+    return 0;
+}
+static int msg_proc_inner(EVENT *event)
+{
+    switch (event->eventID)
+    {
+        case EVENT_GET_VIDEO:
+            printf("EVENT_GET_VIDEO, argv1:%d\n", event->argv1);
+            break;
+        case EVENT_GET_AUDIO:
+            printf("EVENT_GET_AUDIO, argv1:%d\n", event->argv1);
+            break;
+        case EVENT_SND_TALK_AUDIO:
+            printf("EVENT_SND_TALK_AUDIO, argv1:%d\n", event->argv1);
+            break;
+    }
+
+    if (g_svr_ops.svrEventCb) {
+        g_svr_ops.svrEventCb(event);
+    }
+    return 0;
+}
 
 int SVR_Init(const SVR_Ops *ops)
 {
-    return init(ops);
+    int ret = 0;
+    ret = init(ops);
+    if (ret < 0) {
+        printf("SVR_Init failed\n");
+        return -1;
+    }
+    return creat_daemon_task();
 }
 int SVR_Deinit(void)
 {
@@ -253,7 +333,10 @@ int SVR_StartGetAudio(void)
                     event.eventID = EVENT_GET_AUDIO;
                     event.argv1 = true;
                     event.result = -1;
-                    sendMsg(&event);
+                    ret = sendMsg(&event);
+                    if (ret < 0) {
+                        g_daemon_task.getAudio.mtx.unlock();
+                    }
                 }
                 failedCnt++;
                 // printf("getAudio failed failedCnt:%d \n", failedCnt);
@@ -314,11 +397,19 @@ int SVR_StartGetVideo(void)
             unsigned long long pts = 0;
             int encode = 0;
             int frameType = 0;
-            // ret = getVideo(&data, len, pts, encode, frameType);
+
             ret = getVideo();
             if (ret < 0) {
                 if (failedCnt > MaxFailedCnt) {
                     printf("getVideo failed cnt out max, exit\n");
+                    EVENT event;
+                    event.eventID = EVENT_GET_VIDEO;
+                    event.argv1 = false;
+                    event.result = -1;
+                    ret = sendMsg(&event);
+                    if (ret < 0) {
+                        g_daemon_task.getVideo.mtx.unlock();
+                    }
                     break;
                 }
                 
@@ -327,7 +418,7 @@ int SVR_StartGetVideo(void)
                     event.eventID = EVENT_GET_VIDEO;
                     event.argv1 = true;
                     event.result = -1;
-                    sendMsg(&event);
+                    ret = sendMsg(&event);
                 }
                 failedCnt++;
                 printf("getVideo failed failedCnt:%d \n", failedCnt);
@@ -376,7 +467,10 @@ int SVR_SndTalkAudio (const char *data, int len, unsigned long long pts, int enc
         event.eventID = EVENT_SND_TALK_AUDIO;
         event.argv1 = true;
         event.result = -1;
-        sendMsg(&event);
+        ret = sendMsg(&event);
+        if (ret < 0) {
+            g_daemon_task.sendTalk.mtx.unlock();
+        }
     }
     return ret;
 }
