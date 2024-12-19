@@ -174,7 +174,7 @@ static int getJsonIntVal(const char* msg, const char* key)
 
 static int GetDevInfo(const char *pJSON)
 {
-    LOG("\n");
+    // LOG("\n");
     int port;
     int gpsFormat;
     int gpsUploadTime;
@@ -221,7 +221,7 @@ static int GetDevInfo(const char *pJSON)
     g_DevInfo.lat = strtod(lat.c_str(), NULL);
 
     // g_DevInfo.bUdp = true;
-    LOG("\n");
+    // LOG("\n");
     return 0;
 
 }
@@ -246,6 +246,7 @@ static void *UploadGpsThread(void *argv)
 
         std::string lat = std::to_string(g_DevInfo.lat);
         std::string lng = std::to_string(g_DevInfo.lng);
+        // LOG("GBUpdateGPS, lat:%s, lng:%s\n", lat.c_str(), lng.c_str());
         ret = GBUpdateGPS(lat.c_str(), lng.c_str(), 0);
         if (ret < 0) {
             break;
@@ -738,9 +739,10 @@ static int pfnGetAudioCB(char *data, int len, unsigned long long pts, int encode
     // LOG("len:%d, pts:%llu\n", len, pts);
     g_AudioMediaInfo.nAudioSamplesPerSec = sampleRate;
     unsigned char *buf = (unsigned char *)data;
-
+// LOG("\n");
     GBPushRealTimeAudioFrame(FRAME_TYPE_A, ENCODE_TYPE_PCM, buf, len,
                             sampleRate, 16, 1,0);
+// LOG("\n");
     return 0;
 }
 
@@ -947,7 +949,7 @@ int Callback(int iType, const char* szMessage, int iMsgLen, void* pUserParam, in
 
             {
                 SVR_StartGetAudio();
-
+                SVR_StartRecvAudio();
                 g_audio_work_states.talkAudio = true;
             }
             break;

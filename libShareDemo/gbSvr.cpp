@@ -43,8 +43,8 @@ static void testLog(const char *func, int line, char *fmt, ...)
 #define DEFAULT_MEDIA_SVR_CFG  "/app/DefaultMediaSvr.cfg"
 #define MEDIA_SVR_CFG          "/app/sd/MediaSvr.cfg"
 
-#define DEFAULT_DSJET_GB_SVR_CFG  "/app/dsjet_gb.cfg"
-#define DSJET_GB_SVR_CFG          "/app/sd/dsjet_gb.cfg"
+#define DEFAULT_DSJET_GB_SVR_CFG_PATH  "/app/sd/"
+#define DSJET_GB_SVR_CFG          "dsjet_gb.cfg"
 
 // #define TEST_VIDEO
 // #define TEST_AUDIO
@@ -475,7 +475,7 @@ static int pfnGetAudioCB(const char *data, int len, unsigned long long pts, int 
     unsigned char *buf = (unsigned char *)data;
 // LOG("\n");
     GBPushRealTimeAudioFrame(FRAME_TYPE_A, ENCODE_TYPE_PCM, buf, len,
-                            sampleRate, 16, 1,0);
+                            sampleRate, 16, 1,0, pts);
 // LOG("\n");
     return 0;
 }
@@ -762,10 +762,10 @@ int dsjet_gb_load_param(const std::string& filePath, std::map<std::string, std::
     return ret;
 }
 
-int dsjet_gb_start(void)
+int dsjet_gb_start(const std::string& paramPath)
 {
     int ret = 0;
-    ret = dsjet_gb_load_param(DSJET_GB_SVR_CFG, GBParamMap);
+    ret = dsjet_gb_load_param(paramPath, GBParamMap);
     if (ret < 0) {
         LOG("load param failed by file, create it \n");
         std::ofstream file(DSJET_GB_SVR_CFG, std::ios::out | std::ios::trunc);
@@ -824,7 +824,7 @@ int dsjet_gb_start(void)
                 TalkBackProtocol,
                 GPSInterval;
 
-    ret |= getValueFromParam(Enable, "Enable", GBParamMap);
+    ret = getValueFromParam(Enable, "Enable", GBParamMap);
     ret |= getValueFromParam(ConnectType, "ConnectType", GBParamMap);
     ret |= getValueFromParam(PlatformIP, "PlatformIP", GBParamMap);
     ret |= getValueFromParam(PlatformPort, "PlatformPort", GBParamMap);
@@ -912,11 +912,22 @@ int dsjet_gb_start(void)
 }
 
 
-
-
 int main(int argc, char const *argv[])
 {
     signal_cap();
+    std::string svrParamPath;
+    if (argc > 1) {
+        if (argv[1]) {
+            svrParamPath = std::string(argv[1]);
+        } else {
+            LOG("arg1 is null\n");
+            svrParamPath = std::string(DEFAULT_DSJET_GB_SVR_CFG_PATH);
+        }
+    } else {
+        LOG("no set arg1\n");
+        svrParamPath = std::string(DEFAULT_DSJET_GB_SVR_CFG_PATH);
+    }
+    svrParamPath += std::string(DSJET_GB_SVR_CFG);
     SVR_Ops ops;
     memset(&ops, 0, sizeof(ops));
     ops.svrEventCb = pfnEventCB;
@@ -927,7 +938,7 @@ int main(int argc, char const *argv[])
         return 0;
     }
 
-    dsjet_gb_start();
+    dsjet_gb_start(svrParamPath);
 
     SVR_StopGetAudio();
     SVR_StopGetVideo();

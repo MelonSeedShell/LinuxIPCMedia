@@ -20,7 +20,7 @@ int GBPushRealTimeVideoFrame(int i_frame_type,int i_encode_type, unsigned char* 
 int GBPushRealTimeAudioFrame(int i_frame_type,int i_encode_type, unsigned char* byte_data,
                                                        int i_length, int i_samples_per_sec,
                                                        int i_bits_per_sample, int i_channel_num,
-                                                       int idx);
+                                                       int idx,unsigned long long pts);
 int GBUpdateGPS(const char* pszLat,const char* pszLng,int idx);
 int GBSetMsgCallback(GBCallback callback,int idx);
 int GBSetGBTalkDataCallback(GBTalkDataCallback callback,int idx);

@@ -25,6 +25,7 @@ int ShareAudio::send(const char* data, const int& len, const unsigned long long&
         return -1;
     }
     int maxWaitReadFlg = 200;
+    int waitTimeMs = 2;
     int waitReadCnt = 0;
     while (1) {
         int ret = 0;
@@ -61,8 +62,8 @@ int ShareAudio::send(const char* data, const int& len, const unsigned long long&
             if (waitReadCnt >= maxWaitReadFlg) {
                 return -1;
             }
-            waitReadCnt += 10;
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            waitReadCnt += waitTimeMs;
+            std::this_thread::sleep_for(std::chrono::milliseconds(waitTimeMs));
             continue;
         }
     }

@@ -9,7 +9,19 @@
 #include <mutex>
 #include <thread>
 #include "server.h"
+#include <stdarg.h>
+#include <stdio.h>
+#include <sys/time.h>
+static void testLog(const char *func, int line, char *fmt, ...)
+{
+    va_list args;
+    fprintf(stdout, "[%s-%d]:", func, line);
+    va_start(args, fmt);
+    vfprintf(stdout, fmt, args);
+    va_end(args);
+}
 
+#define LOG(fmt, args...) testLog(__func__, __LINE__, fmt, ##args)
 
 typedef struct {
     bool isStart = false;
@@ -32,33 +44,33 @@ static int svr_callback (EVENT *event)
     switch (event->eventID) 
     {
         case EVENT_GET_VIDEO:
-            printf("EVENT_GET_VIDEO, argv1:%d\n", event->argv1);
+            LOG("EVENT_GET_VIDEO, argv1:%d\n", event->argv1);
             break;
         case EVENT_GET_AUDIO:
-            printf("EVENT_GET_AUDIO, argv1:%d\n", event->argv1);
+            LOG("EVENT_GET_AUDIO, argv1:%d\n", event->argv1);
             break;
         case EVENT_SND_TALK_AUDIO:
-            printf("EVENT_SND_TALK_AUDIO, argv1:%d\n", event->argv1);
+            LOG("EVENT_SND_TALK_AUDIO, argv1:%d\n", event->argv1);
 
             break;
         case EVENT_CTL_START_REC:
-            printf("EVENT_CTL_START_REC, argv1:%d\n", event->argv1);
+            LOG("EVENT_CTL_START_REC, argv1:%d\n", event->argv1);
             break;
         case EVENT_CTL_TAKE_PHOTO:
-            printf("EVENT_CTL_TAKE_PHOTO, argv1:%d\n", event->argv1);
+            LOG("EVENT_CTL_TAKE_PHOTO, argv1:%d\n", event->argv1);
 
             break;
         case EVENT_CTL_GET_DIR:
-            printf("EVENT_CTL_GET_DIR, argv1:%d\n", event->argv1);
+            LOG("EVENT_CTL_GET_DIR, argv1:%d\n", event->argv1);
             break;
         case EVENT_CTL_GET_DEV_INFO:
-            printf("EVENT_CTL_GET_DEV_INFO, argv1:%d\n", event->argv1);
+            LOG("EVENT_CTL_GET_DEV_INFO, argv1:%d\n", event->argv1);
             break;
         case EVENT_CTL_SOS:
-            printf("EVENT_CTL_SOS, argv1:%d\n", event->argv1);
+            LOG("EVENT_CTL_SOS, argv1:%d\n", event->argv1);
             break;
         case EVENT_LOGIN_STATUS:
-            printf("EVENT_LOGIN_STATUS, argv1:%d\n", event->argv1);
+            LOG("EVENT_LOGIN_STATUS, argv1:%d\n", event->argv1);
             break;
         default:
             break;
@@ -73,7 +85,7 @@ static int svr_callback (EVENT *event)
 
 static int svr_GetAudioCb(const char *data, int len, unsigned long long pts, int encode, int sampleRate)
 {
-    printf("[%s:%d]len:%d\n", __func__, __LINE__, len);
+    LOG("[%s:%d]len:%d\n", __func__, __LINE__, len);
     if (g_audio_fp) {
         fwrite(data, 1, len, g_audio_fp);
     }
@@ -82,10 +94,43 @@ static int svr_GetAudioCb(const char *data, int len, unsigned long long pts, int
 
 static int svr_GetVideoCb(const char *data, int len, unsigned long long pts, int frameType, int encode)
 {
-    printf("[%s:%d]len:%d\n", __func__, __LINE__, len);
+    LOG("[%s:%d]len:%d\n", __func__, __LINE__, len);
     if (g_video_fp) {
         fwrite(data, 1, len, g_video_fp);
     }
+    return 0;
+}
+
+static int svr_startSendTalkAudio(void)
+{
+    std::lock_guard<std::mutex> lock(g_talk_task.mtx);
+    if (g_talk_task.isStart) {
+        LOG("has started\n");
+        return 0;
+    }
+    g_talk_task.isStart = true;
+    g_talk_task.workProc = new std::thread([](){
+        FILE* fp = fopen("test.pcm", "rb");
+        if (!fp) {
+            LOG("open test.pcm failed \n");
+            return ;
+        }
+
+        char data[320 * 2];
+        while (g_talk_task.isStart) {
+            size_t readLen = fread(data, 1, sizeof(data), fp);
+            if (readLen <= 0) {
+                LOG("fread failed, exit\n");
+                break;
+            }
+            struct timeval tv;
+            gettimeofday(&tv, NULL);
+            unsigned long long frame_pts = (tv.tv_sec * 1000 + tv.tv_usec/1000) * 90;
+            SVR_SndTalkAudio (data, readLen, frame_pts, AUDIO_ENCODE_PCM, 8000);
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+        g_talk_task.isStart = false;
+    });
     return 0;
 }
 int main()
@@ -106,14 +151,16 @@ int main()
     long startEventID = EVENT_GET_VIDEO;
     g_video_fp = fopen("svr_save_video_file", "wb");
     g_audio_fp = fopen("svr_save_audio_file", "wb");
-    SVR_StartGetVideo();
-    SVR_StartGetAudio();
-    while (maxCnt < 30) {
+    // SVR_StartGetVideo();
+    // SVR_StartGetAudio();
+    // svr_startSendTalkAudio();
+    while (g_talk_task.isStart) {
         maxCnt++;
         std::this_thread::sleep_for(std::chrono::milliseconds(1000));
     }
 
     fclose(g_video_fp);
+    fclose(g_audio_fp);
 
     ret = SVR_Deinit();
     if (ret < 0) {
