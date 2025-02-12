@@ -7,10 +7,14 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pthread")
 
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/Share)
 
-add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/libShareDemo)
+# add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/libShareDemo)
 
-# add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/hi3556)
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/hi3556)
 
+# add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/Soket)
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/Socket/broadcast)
+
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/Usb)
 # include_directories(${CMAKE_CURRENT_SOURCE_DIR}/${PLATFORM_TYPE}/include)
 # link_directories(${CMAKE_CURRENT_SOURCE_DIR}/${PLATFORM_TYPE}/lib)
 # include_directories(${CMAKE_CURRENT_SOURCE_DIR}/${PLATFORM_TYPE}/${MEDIA_TYPE}/include)
