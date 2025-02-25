@@ -4,11 +4,11 @@
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 link_directories(${CMAKE_CURRENT_SOURCE_DIR}/lib/${PLATFORM_TYPE})
 
-add_executable(gbSvr ${CMAKE_CURRENT_SOURCE_DIR}/gbSvr.cpp)
+add_executable(dsjGbSvr ${CMAKE_CURRENT_SOURCE_DIR}/gbSvr.cpp)
 add_executable(client ${CMAKE_CURRENT_SOURCE_DIR}/demo/client.cpp)
 add_executable(server ${CMAKE_CURRENT_SOURCE_DIR}/demo/server.cpp)
 
-target_link_libraries(gbSvr
+target_link_libraries(dsjGbSvr
     -Wl,--start-group
     libAVdataShare.so
     libgb28181_jni.a

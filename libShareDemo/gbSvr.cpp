@@ -781,20 +781,6 @@ int dsjet_gb_start(const std::string& paramPath)
         file.close();
     }
 
-    int netCnnt = -1;
-    std::string pingCmd = "ping -c 1 www.baidu.com > /dev/null";
-    while (netCnnt != 0) {
-        netCnnt = system(pingCmd.c_str());
-        if (netCnnt == 0) {
-            LOG("cnnet success \n");
-            break;
-        } else {
-            LOG("cnnet failed \n");
-        }
-
-        sleep(1);
-    }
-
     std::string Enable,
                 ConnectType,
                 PlatformIP, 
@@ -857,6 +843,21 @@ int dsjet_gb_start(const std::string& paramPath)
         LOG("init dsjet gb config failed \n");
         return ret;
     }
+
+    int netCnnt = -1;
+    std::string pingCmd = "ping -c 1 " + PlatformIP + " > /dev/null";
+    while (netCnnt != 0) {
+        netCnnt = system(pingCmd.c_str());
+        if (netCnnt == 0) {
+            LOG("cnnet success \n");
+            break;
+        } else {
+            LOG("cnnet failed \n");
+        }
+
+        sleep(1);
+    }
+
     std::stringstream ssParam;
     ssParam << "{";
     ssParam << "\"Platform\":";
